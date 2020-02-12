@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 
-from neuralprocess.util import tensor_to_loc_scale
+from neuralprocess.util import tensor_to_loc_scale, stack_batch, unstack_batch
 
 
 
@@ -10,7 +10,7 @@ class NeuralProcess(nn.Module):
     A Neural Process implementation. A few design choices to consider:
 
         - The model inputs are mostly sets, which are expected to be of
-            shape (B, |set|, C, ...).
+            shape (|set|, B, C, ...).
         - You have to initalize the different submodules (encoders and
             decoder) manually in advance. It is your responsibility to
             ensure they have matching input and output sizes.
@@ -85,29 +85,33 @@ class NeuralProcess(nn.Module):
 
         """
 
-        return representations.mean(1)
+        return representations.mean(0)
 
-    def encode_prior(self, context_in, context_out):
+    def encode_prior(self,
+                     context_in,
+                     context_out,
+                     target_in=None):
         """
         Use the 'prior_encoder' to encode a prior distribution
 
         Args:
-            context_in  (torch.tensor): Shape (B, N, Cin, ...).
-            context_out (torch.tensor): Shape (B, N, Cout, ...).
+            context_in  (torch.tensor): Shape (N, B, Cin, ...).
+            context_out (torch.tensor): Shape (N, B, Cout, ...).
+            target_in (torch.tensor): Ignored. Only to have consistent
+                signature when more complex children need to use it.
 
         Returns:
             torch.distributions.Distribution: Output of 'decoder'
 
         """
 
-        B, N = context_in.shape[:2]
+        N = context_in.shape[0]
 
-        # stack along batch axis
-        context_in = context_in.reshape(B*N, *context_in.shape[2:])
-        context_out = context_out.reshape(B*N, *context_out.shape[2:])
+        context_in = stack_batch(context_in)
+        context_out = stack_batch(context_out)
 
         prior_rep = self.prior_encoder(torch.cat((context_in, context_out), 1))
-        prior_rep = prior_rep.reshape(B, N, *prior_rep.shape[1:])
+        prior_rep = unstack_batch(prior_rep, N)
         prior_rep = self.aggregate(prior_rep)
 
         self.prior = tensor_to_loc_scale(
@@ -115,28 +119,33 @@ class NeuralProcess(nn.Module):
 
         return self.prior
 
-    def encode_representation(self, context_in, context_out, store_rep=False):
+    def encode_representation(self,
+                              context_in,
+                              context_out,
+                              target_in=None,
+                              store_rep=False):
         """
         Use the 'deterministic_encoder' to encode a representation
 
         Args:
-            context_in  (torch.tensor): Shape (B, N, Cin, ...).
-            context_out (torch.tensor): Shape (B, N, Cout, ...).
-            store_rep   (bool):         Store representation.
+            context_in  (torch.tensor): Shape (N, B, Cin, ...).
+            context_out (torch.tensor): Shape (N, B, Cout, ...).
+            target_in (torch.tensor): Ignored. Only to have consistent
+                signature when more complex children need to use it.
+            store_rep (bool): Store representation.
 
         Returns:
             torch.tensor: Deterministic representation
 
         """
 
-        B, N = context_in.shape[:2]
+        N = context_in.shape[0]
 
-        # stack along batch axis
-        context_in = context_in.reshape(B*N, *context_in.shape[2:])
-        context_out = context_out.reshape(B*N, *context_out.shape[2:])
+        context_in = stack_batch(context_in)
+        context_out = stack_batch(context_out)
 
         rep = self.deterministic_encoder(torch.cat((context_in, context_out), 1))
-        rep = rep.reshape(B, N, *rep.shape[1:])
+        rep = unstack_batch(rep, N)
         rep = self.aggregate(rep)
         if store_rep:
             self.representation = rep
@@ -148,27 +157,27 @@ class NeuralProcess(nn.Module):
         Use the 'posterior_encoder' to encode a posterior distribution
 
         Args:
-            context_in  (torch.tensor): Shape (B, N, Cin, ...).
-            context_out (torch.tensor): Shape (B, N, Cout, ...).
-            target_in   (torch.tensor): Shape (B, M, Cin, ...).
-            target_out  (torch.tensor): Shape (B, M, Cout, ...).
+            context_in  (torch.tensor): Shape (N, B, Cin, ...).
+            context_out (torch.tensor): Shape (N, B, Cout, ...).
+            target_in   (torch.tensor): Shape (M, B, Cin, ...).
+            target_out  (torch.tensor): Shape (M, B, Cout, ...).
 
         Returns:
             torch.distributions.Distribution: Output of 'decoder'
 
         """
         
-        B, N = context_in.shape[:2]
-        M = target_in.shape[1]
+        N = context_in.shape[0]
+        M = target_in.shape[0]
 
         context = torch.cat((context_in, context_out), 2)
         target = torch.cat((target_in, target_out), 2)
-        context = torch.cat((context, target), 1)
+        context = torch.cat((context, target), 0)
 
-        context = context.reshape(B*(N+M), *context.shape[2:])
+        context = stack_batch(context)
 
         posterior_rep = self.posterior_encoder(context)
-        posterior_rep = posterior_rep.reshape(B, (N+M), *posterior_rep.shape[1:])
+        posterior_rep = unstack_batch(posterior_rep, N+M)
         posterior_rep = self.aggregate(posterior_rep)
         
         self.posterior = tensor_to_loc_scale(
@@ -182,7 +191,7 @@ class NeuralProcess(nn.Module):
         representation.
 
         Args:
-            target_in (torch.tensor): Shape (B, M, Cin, ...).
+            target_in (torch.tensor): Shape (M, B, Cin, ...).
             sample (torch.tensor): Shape (B, Rs, ...).
             representation (torch.tensor): Shape (B, Rr, ...).
 
@@ -203,8 +212,8 @@ class NeuralProcess(nn.Module):
 
                 # broadcast global sample
                 if sample.ndim < target_in.ndim:
-                    sample = sample.unsqueeze(1)
-                    repeats = [1, target_in.shape[1]] + [1, ] * (sample.ndim-2)
+                    sample = sample.unsqueeze(0)
+                    repeats = [target_in.shape[0],] + [1,] * (sample.ndim-1)
                     sample = sample.repeat(*repeats)
                 concat.append(sample)
 
@@ -212,8 +221,8 @@ class NeuralProcess(nn.Module):
 
                 # broadcast global representation
                 if representation.ndim < target_in.ndim:
-                    representation = representation.unsqueeze(1)
-                    repeats = [1, target_in.shape[1]] + [1, ] * (representation.ndim-2)
+                    representation = representation.unsqueeze(0)
+                    repeats = [target_in.shape[0],] + [1,] * (representation.ndim-1)
                     representation = representation.repeat(*repeats)
                 concat.append(representation)
 
@@ -232,10 +241,10 @@ class NeuralProcess(nn.Module):
         is optional.
 
         Args:
-            context_in (torch.tensor): Shape (B, N, Cin, ...).
-            context_out (torch.tensor): Shape (B, N, Cout, ...).
-            target_in (torch.tensor): Shape (B, M, Cin, ...).
-            target_out (torch.tensor): Shape (B, M, Cout, ...).
+            context_in (torch.tensor): Shape (N, B, Cin, ...).
+            context_out (torch.tensor): Shape (N, B, Cout, ...).
+            target_in (torch.tensor): Shape (M, B, Cin, ...).
+            target_out (torch.tensor): Shape (M, B, Cout, ...).
             store_rep (bool): Store deterministic representation.
 
         Returns:
@@ -245,12 +254,12 @@ class NeuralProcess(nn.Module):
 
         if self.deterministic_encoder is not None:
             representation = self.encode_representation(
-                context_in, context_out, store_rep=store_rep)
+                context_in, context_out, target_in, store_rep=store_rep)
         else:
             representation = None
         
         if self.prior_encoder is not None:
-            self.encode_prior(context_in, context_out)
+            self.encode_prior(context_in, context_out, target_in)
             if self.training:
                 self.encode_posterior(
                     context_in, context_out, target_in, target_out)
@@ -309,13 +318,13 @@ class NeuralProcess(nn.Module):
         it being None.
 
         Args:
-            target_in (torch.tensor): Shape (B, M, Cin, ...).
+            target_in (torch.tensor): Shape (M, B, Cin, ...).
             n (int): Get this many samples.
             from_posterior (bool): Sample from posterior instead of prior.
             to_cpu (bool): Move predictions to CPU immediately.
 
         Returns:
-            torch.tensor: Stacked samples of shape (B, N, Cout, ...).
+            torch.tensor: Stacked samples of shape (N, M, B, Cout, ...).
 
         """
         
@@ -347,4 +356,4 @@ class NeuralProcess(nn.Module):
             if old_state:
                 self.train()
 
-            return torch.stack(samples).transpose(0, 1)
+            return torch.stack(samples)

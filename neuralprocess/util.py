@@ -25,3 +25,18 @@ def tensor_to_loc_scale(tensor, distribution, logvar_transform=True, axis=1):
         scale = torch.exp(0.5 * scale)
 
     return distribution(loc, scale)
+
+
+
+def stack_batch(tensor):
+    """Stacks second axis along first axis."""
+
+    return tensor.reshape(tensor.shape[0]*tensor.shape[1], *tensor.shape[2:])
+
+
+
+def unstack_batch(tensor, N):
+    """Reverses stack_batch."""
+
+    B = tensor.shape[0] // N
+    return tensor.reshape(N, B, *tensor.shape[1:])
