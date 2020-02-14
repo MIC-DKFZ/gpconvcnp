@@ -70,15 +70,15 @@ def make_grid(x, points_per_unit, padding=0.1, grid_divisible_by=None):
         min_ = 1e9
         max_ = -1e9
         for t in x:
-            min_ = min(min_, x.min().item())
-            max_ = max(max_, x.max().item())
+            min_ = min(min_, t.min().item())
+            max_ = max(max_, t.max().item())
     min_ -= padding
     max_ += padding
 
     if not torch.is_tensor(x):
         x = x[0]
 
-    num_points = points_per_unit * (max_ - min_)
+    num_points = int(points_per_unit * (max_ - min_))
     if grid_divisible_by not in (None, 0):
         while num_points % grid_divisible_by != 0:
             num_points += 1

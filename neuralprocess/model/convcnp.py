@@ -18,8 +18,7 @@ class ConvDeepSet(nn.Module):
         project_to (int): Project interpolation to this many channels.
             0 means no projection.
         project_bias (bool): Activate bias in projection.
-        out_channels (int): Channels of the output space, i.e. the input
-            size for the projection.
+        project_in_channels (int): Input channels for the projection.
 
     """
 
@@ -29,7 +28,7 @@ class ConvDeepSet(nn.Module):
                  use_density_norm=True,
                  project_to=0,
                  project_bias=True,
-                 out_channels=1,
+                 project_in_channels=1,
                  **kwargs):
 
         super().__init__()
@@ -39,7 +38,7 @@ class ConvDeepSet(nn.Module):
         self.use_density_norm = use_density_norm
         self.project_to = project_to
         self.project_bias = project_bias
-        self.out_channels = out_channels
+        self.project_in_channels = project_in_channels
 
         if self.project_to not in (0, None):
             self.setup_projections()
@@ -47,7 +46,7 @@ class ConvDeepSet(nn.Module):
     def setup_projections(self):
         """Set up modules that project to another space."""
 
-        self.project_out = nn.Linear(self.out_channels,
+        self.project_out = nn.Linear(self.project_in_channels,
                                      self.project_to,
                                      bias=self.project_bias)
 
@@ -69,10 +68,13 @@ class ConvDeepSet(nn.Module):
         G = grid.shape[0]
 
         if self.use_density:
-            density = torch.ones(N, B, 1).to(context_in.dtype, context_in.device)
+            density = torch.ones(N, B, 1)
+            density = density.to(dtype=context_in.dtype, device=context_in.device)
             context_out = torch.cat((density, context_out), -1)
 
         K = self.kernel(context_in.transpose(0, 1), grid.transpose(0, 1))  # (B, N, G)
+        if isinstance(K, gpytorch.lazy.LazyEvaluatedKernelTensor):
+            K = K.evaluate()
 
         output = context_out.transpose(0, 1).unsqueeze(-2) * K.unsqueeze(-1)  # (B, N, G, Cout)
         output = output.sum(1)  # (B, G, Cout)

@@ -94,7 +94,7 @@ class AttentiveNeuralProcess(NeuralProcess):
         encoder_input = torch.cat(
             (stack_batch(context_in), stack_batch(context_out)), 1)
         representations = self.deterministic_encoder(encoder_input)
-        representations = unstack_batch(representations, M)
+        representations = unstack_batch(representations, N)
 
         # get rid of spatial dimensions for attention
         target_in = target_in.reshape(*target_in.shape[:2], -1)
