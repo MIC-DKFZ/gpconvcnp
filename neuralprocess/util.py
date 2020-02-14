@@ -52,7 +52,8 @@ def make_grid(x, points_per_unit, padding=0.1, grid_divisible_by=None):
 
     Args:
         x (torch.tensor): Input values, shape (N, B, Cin). Can alternatively
-            be a list or tuple of tensors.
+            be a list or tuple of tensors, then the min/max will be taken
+            over all tensors.
         points_per_unit (int): The grid resolution.
         padding (float): Pad the grid range on both sides by this value.
         grid_divisible_by (int): Increase grid size until it's divisible

@@ -72,11 +72,11 @@ class ConvDeepSet(nn.Module):
             density = density.to(dtype=context_in.dtype, device=context_in.device)
             context_out = torch.cat((density, context_out), -1)
 
-        K = self.kernel(context_in.transpose(0, 1), grid.transpose(0, 1))  # (B, N, G)
-        if isinstance(K, gpytorch.lazy.LazyEvaluatedKernelTensor):
-            K = K.evaluate()
+        context_in = context_in.transpose(0, 1).unsqueeze(1)  # (B, 1, G, Cin)
+        grid = grid.transpose(0, 1).unsqueeze(1)  # (B, 1, G, Cin)
+        K = self.kernel(context_in, grid).evaluate().permute(0, 2, 3, 1)  # (B, N, G, Cout)
 
-        output = context_out.transpose(0, 1).unsqueeze(-2) * K.unsqueeze(-1)  # (B, N, G, Cout)
+        output = context_out.transpose(0, 1).unsqueeze(-2) * K
         output = output.sum(1)  # (B, G, Cout)
         if self.use_density and self.use_density_norm:
             output[..., 1:] /= (output[..., :1] + 1e-8)
@@ -96,6 +96,12 @@ class GPConvDeepSet(ConvDeepSet):
     that this implementation only works with scalar output size.
     To extend this to multiple output channels, see the Multitask GP
     Regression examples in GPyTorch.
+
+    Args:
+        gp_lambda (float): GP covariance will be squeezed by this factor.
+        gp_sample_from_posterior (int): Use the mean of this many posterior
+            samples instead of mean prediction. 0 uses mean prediction.
+            
     """
 
     def __init__(self,
@@ -130,19 +136,19 @@ class GPConvDeepSet(ConvDeepSet):
         grid = grid.transpose(0, 1)
 
         # do GP inference manually, consider replacing with GPyTorch
-        K = self.kernel(context_in, context_in)  # (B, N, N)
+        K = self.kernel(context_in, context_in).evaluate()  # (B, N, N)
         L = gpytorch.utils.cholesky.psd_safe_cholesky(K)  # (B, N, N)
-        K_s = self.kernel(context_in, grid)  # (B, N, G)
-        L_k = torch.solve(K_s, L)  # (B, N, G)
-        output = torch.bmm(L_k.transpose(1, 2), torch.solve(y, L)[0])  # (B, G, 1)
+        K_s = self.kernel(context_in, grid).evaluate()  # (B, N, G)
+        L_k, _ = torch.solve(K_s, L)  # (B, N, G)
+        output = torch.bmm(L_k.transpose(1, 2), torch.solve(context_out, L)[0])  # (B, G, 1)
 
         if self.gp_sample_from_posterior:
-            K_ss = self.kernel(grid, grid)  # (B, G, G)
+            K_ss = self.kernel(grid, grid).evaluate()  # (B, G, G)
             K_ss -= torch.bmm(L_k.transpose(1, 2), L_k)
             L_ss = gpytorch.utils.cholesky.psd_safe_cholesky(K_ss)
             samples = torch.randn(output.shape[0],
                                   L_ss.shape[-1],
-                                  self.gp_posterior_from_samples)
+                                  self.gp_sample_from_posterior)
             samples = samples.to(device=L_ss.device)
             samples = torch.bmm(L_ss, samples)
             output = output + self.gp_lambda * samples  # (B, G, num_samples)
