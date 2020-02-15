@@ -17,7 +17,7 @@ class NeuralProcess(nn.Module):
         - Either 'prior_encoder' or 'deterministic_encoder' must exist.
         - The submodules are expected to take and return tensors.
             Splitting into loc and scale to define distributions will be
-            done by this class.
+            done by this class (except for the output).
 
     Args:
         prior_encoder (torch.nn.Module): Encoder for the prior.

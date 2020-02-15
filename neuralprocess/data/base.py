@@ -40,7 +40,8 @@ class FunctionGenerator(SlimDataLoaderBase):
                  target_includes_context=True,
                  output_noise=0.,
                  linspace=False,
-                 number_of_threads_in_multithreaded=1):
+                 number_of_threads_in_multithreaded=1,
+                 **kwargs):
 
         super().__init__(None, batch_size, number_of_threads_in_multithreaded)
 
@@ -70,17 +71,17 @@ class FunctionGenerator(SlimDataLoaderBase):
             num_target = self.num_target
 
         if self.linspace:
-            x = torch.linspace(*self.x_range, num_context + num_target)
-            x = x.reshape(1, -1, 1).float()
+            x = np.linspace(*self.x_range, num_context + num_target)
+            x = x.reshape(1, -1, 1)
         else:
-            x = torch.rand(1, num_context + num_target, 1).float()
-            x *= (self.x_range[1] - self.x_range[0])
-            x += (self.x_range[0] + self.x_range[1]) / 2.
-            x = x.sort(1)[0]
-        x = x.repeat(self.batch_size, 1, 1)
-            
+            x = np.random.uniform(*self.x_range, size=(1, num_context + num_target, 1))
+            x.sort(1)
+        x = x.astype(np.float32)
+
+        # x now has shape (1, num_context + num_target, 1)
         y = self.apply(x)
 
+        x = np.repeat(x, self.batch_size, 0)
         rand_indices = np.random.choice(np.arange(num_context + num_target),
                                         num_context,
                                         replace=False)
@@ -91,21 +92,19 @@ class FunctionGenerator(SlimDataLoaderBase):
             target_in = x
             target_out = y
         else:
-            inverse_indices = np.delete(np.arange(num_context + num_target),
-                                        rand_indices)
-            target_in = x[:, inverse_indices, :]
-            target_out = y[:, inverse_indices, :]
+            target_in = np.delete(x, rand_indices, 1)
+            target_out = np.delete(y, rand_indices, 1)
 
         if self.output_noise > 0:
-            context_out += 2 * (torch.rand(context_out.shape) - 0.5) * self.output_noise
+            context_out += np.random.uniform(-self.output_noise,
+                                             self.output_noise,
+                                             size=context_out.shape)
 
         return dict(
-            context_in=context_in.transpose(0, 1),
-            context_out=context_out.transpose(0, 1),
-            target_in=target_in.transpose(0, 1),
-            target_out=target_out.transpose(0, 1),
-            x=x.transpose(0, 1),
-            y=y.transpose(0, 1)
+            context_in=torch.from_numpy(context_in).transpose(0, 1),
+            context_out=torch.from_numpy(context_out).transpose(0, 1),
+            target_in=torch.from_numpy(target_in).transpose(0, 1),
+            target_out=torch.from_numpy(target_out).transpose(0, 1)
         )
 
     def apply(self, x):

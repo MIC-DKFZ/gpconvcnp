@@ -3,6 +3,49 @@ import torch.nn as nn
 
 
 
+class MLP(nn.Sequential):
+    """
+    A simple multilayer perceptron.
+
+    Args:
+        in_channels (int): Input channels.
+        out_channels (int): Output channels.
+        hidden_channels (int): Number of channels in hidden layers.
+            Can also be a list or tuple of length hidden_layers.
+        hidden_layers (int): Use this many hidden layers.
+    """
+
+    def __init__(self,
+                 in_channels,
+                 out_channels,
+                 hidden_channels=128,
+                 hidden_layers=6,
+                 activation_op=nn.Tanh,
+                 activation_kwargs=None,
+                 bias=True):
+
+        super().__init__()
+
+        if isinstance(hidden_channels, int):
+            hidden_channels = [hidden_channels, ] * hidden_layers
+        if activation_kwargs is None:
+            activation_kwargs = dict()
+
+        self.add_module("lin0", nn.Linear(in_channels,
+                                          hidden_channels[0],
+                                          bias=bias))
+        self.add_module("act0", activation_op(**activation_kwargs))
+        for h in range(1, hidden_layers):
+            self.add_module("lin" + str(h), nn.Linear(hidden_channels[h-1],
+                                                      hidden_channels[h],
+                                                      bias=bias))
+            self.add_module("act" + str(h), activation_op(**activation_kwargs))
+        self.add_module("lin" + str(hidden_layers), nn.Linear(hidden_channels[-1],
+                                                              out_channels,
+                                                              bias=bias))
+
+
+
 class ConvNormActivationPool(nn.Sequential):
     """
     A simple block consisting of (Conv, Norm, Activation, Pool) where

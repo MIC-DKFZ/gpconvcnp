@@ -12,7 +12,10 @@ class ConvDeepSet(nn.Module):
     and optionally project to a new space.
 
     Args:
-        kernel (gpytorch.kernels.Kernel): Kernel used for interpolation.
+        kernel (type or callable): Kernel used for interpolation. If it's a
+            type, it will be constructed with kernel_kwargs, otherwise used
+            as is.
+        kernel_kwargs (dict): Arguments for kernel construction.
         use_density (bool): Make use of a separate density channel.
         use_density_norm (bool): Divide interpolated result by density channel.
         project_to (int): Project interpolation to this many channels.
@@ -24,6 +27,7 @@ class ConvDeepSet(nn.Module):
 
     def __init__(self,
                  kernel,
+                 kernel_kwargs=None,
                  use_density=True,
                  use_density_norm=True,
                  project_to=0,
@@ -33,7 +37,12 @@ class ConvDeepSet(nn.Module):
 
         super().__init__()
         
-        self.kernel = kernel
+        if type(kernel) == type:
+            if kernel_kwargs is None:
+                kernel_kwargs = dict()
+            self.kernel = kernel(**kernel_kwargs)
+        else:
+            self.kernel = kernel
         self.use_density = use_density
         self.use_density_norm = use_density_norm
         self.project_to = project_to
@@ -284,7 +293,9 @@ class ConvCNP(nn.Module):
                 context_in,
                 context_out,
                 target_in,
-                store_rep=False):
+                target_out=None,
+                store_rep=False,
+                *args, **kwargs):
         """
         Forward pass in the Convolutional Conditional Neural Process.
 
@@ -292,6 +303,7 @@ class ConvCNP(nn.Module):
             context_in (torch.tensor): Shape (N, B, Cin).
             context_out (torch.tensor): Shape (N, B, Cout).
             target_in (torch.tensor): Shape (M, B, Cin).
+            target_out (torch.tensor): Unused.
             store_rep (bool): Store representation.
 
         Returns:
