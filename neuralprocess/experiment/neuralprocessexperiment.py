@@ -160,8 +160,7 @@ def make_defaults(representation_channels=128):
             learn_length_scale=True,
             points_per_unit=20,
             use_gp=False,
-        ),
-        output_transform_logvar=True
+        )
     )
 
     GPCONVCNP = Config(
@@ -514,11 +513,11 @@ class NeuralProcessExperiment(PytorchExperiment):
             summary = self.make_samples()
             summary["epoch"] = epoch
             self.make_plots(summary, save=True, show=True, validate=True)
-        # except (ValueError, NotImplementedError, AttributeError) as e:  # if models can't sample
-        #     pass
-        # except RuntimeError as e:  # numerical instability in GP cholesky
-        #     print("Skipped sampling because of numerical instability.")
-        #     pass
+        except (ValueError, NotImplementedError, AttributeError) as e:  # if models can't sample
+            pass
+        except RuntimeError as e:  # numerical instability in GP cholesky
+            print("Skipped sampling because of numerical instability.")
+            pass
         except Exception as e:
             raise e
 

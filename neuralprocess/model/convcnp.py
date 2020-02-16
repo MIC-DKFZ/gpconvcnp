@@ -233,314 +233,6 @@ class UNet(nn.Module):
 
 
 
-# class ConvDeepSet(nn.Module):
-#     """One-dimensional set convolution layer. Uses an RBF kernel for
-#     `psi(x, x')`.
-
-#     Args:
-#         in_channels (int): Number of input channels.
-#         out_channels (int): Number of output channels.
-#         learn_length_scale (bool): Learn the length scales of the channels.
-#         init_length_scale (float): Initial value for the length scale.
-#         use_density (bool, optional): Append density channel to inputs.
-#             Defaults to `True`.
-#     """
-
-#     def __init__(self,
-#                  in_channels,
-#                  out_channels,
-#                  learn_length_scale,
-#                  init_length_scale,
-#                  use_density=True):
-#         super(ConvDeepSet, self).__init__()
-#         self.out_channels = out_channels
-#         self.use_density = use_density
-#         self.in_channels = in_channels + 1 if self.use_density else in_channels
-#         self.g = self.build_weight_model()
-#         self.sigma = nn.Parameter(np.log(init_length_scale) *
-#                                   torch.ones(self.in_channels),
-#                                   requires_grad=learn_length_scale)
-#         self.sigma_fn = torch.exp
-
-#     def build_weight_model(self):
-#         """Returns a function point-wise function that transforms the
-#         `in_channels + 1`-dimensional representation to dimensionality
-#         `out_channels`.
-
-#         Returns:
-#             :class:`torch.nn.Module`: Linear layer applied point-wise to
-#                 channels.
-#         """
-#         model = nn.Sequential(
-#             nn.Linear(self.in_channels, self.out_channels),
-#         )
-#         init_sequential_weights(model)
-#         return model
-
-#     def forward(self, x, y, t, *args, **kwargs):
-#         """Forward pass through the layer with evaluations at locations `t`.
-
-#         Args:
-#             x (tensor): Inputs of observations of shape `(n, 1)`.
-#             y (tensor): Outputs of observations of shape `(n, in_channels)`.
-#             t (tensor): Inputs to evaluate function at of shape `(m, 1)`.
-
-#         Returns:
-#             tensor: Outputs of evaluated function at `z` of shape
-#                 `(m, out_channels)`.
-#         """
-#         # Ensure that `x`, `y`, and `t` are rank-3 tensors.
-#         if len(x.shape) == 2:
-#             x = x.unsqueeze(2)
-#         if len(y.shape) == 2:
-#             y = y.unsqueeze(2)
-#         if len(t.shape) == 2:
-#             t = t.unsqueeze(2)
-
-#         # Compute shapes.
-#         batch_size = x.shape[0]
-#         n_in = x.shape[1]
-#         n_out = t.shape[1]
-
-#         # Compute the pairwise distances.
-#         # Shape: (batch, n_in, n_out).
-#         dists = compute_dists(x, t)
-
-#         # Compute the weights.
-#         # Shape: (batch, n_in, n_out, in_channels).
-#         wt = self.rbf(dists)
-
-#         if self.use_density:
-#             # Compute the extra density channel.
-#             # Shape: (batch, n_in, 1).
-#             density = torch.ones(batch_size, n_in, 1).to(device)
-
-#             # Concatenate the channel.
-#             # Shape: (batch, n_in, in_channels).
-#             y_out = torch.cat([density, y], dim=2)
-#         else:
-#             y_out = y
-
-#         # Perform the weighting.
-#         # Shape: (batch, n_in, n_out, in_channels).
-#         y_out = y_out.view(batch_size, n_in, -1, self.in_channels) * wt
-
-#         # Sum over the inputs.
-#         # Shape: (batch, n_out, in_channels).
-#         y_out = y_out.sum(1)
-
-#         if self.use_density:
-#             # Use density channel to normalize convolution
-#             density, conv = y_out[..., :1], y_out[..., 1:]
-#             normalized_conv = conv / (density + 1e-8)
-#             y_out = torch.cat((density, normalized_conv), dim=-1)
-
-#         # Apply the point-wise function.
-#         # Shape: (batch, n_out, out_channels).
-#         y_out = y_out.view(batch_size * n_out, self.in_channels)
-#         y_out = self.g(y_out)
-#         y_out = y_out.view(batch_size, n_out, self.out_channels)
-
-#         return y_out
-
-#     def rbf(self, dists):
-#         """Compute the RBF values for the distances using the correct length
-#         scales.
-
-#         Args:
-#             dists (tensor): Pair-wise distances between `x` and `t`.
-
-#         Returns:
-#             tensor: Evaluation of `psi(x, t)` with `psi` an RBF kernel.
-#         """
-#         # Compute the RBF kernel, broadcasting appropriately.
-#         scales = self.sigma_fn(self.sigma)[None, None, None, :]
-#         a, b, c = dists.shape
-#         return torch.exp(-0.5 * dists.view(a, b, c, -1) / scales ** 2)
-
-
-
-# class GPConvDeepSet(nn.Module):
-#     """One-dimensional set convolution layer. Uses an RBF kernel for
-#     `psi(x, x')`.
-
-#     Args:
-#         in_channels (int): Number of input channels.
-#         out_channels (int): Number of output channels.
-#         learn_length_scale (bool): Learn the length scales of the channels.
-#         init_length_scale (float): Initial value for the length scale.
-#         use_density (bool, optional): Append density channel to inputs.
-#             Defaults to `True`.
-#     """
-
-#     def __init__(self,
-#                  in_channels,
-#                  out_channels,
-#                  learn_length_scale,
-#                  init_length_scale,
-#                  use_density=True,
-#                  gp_posterior_from_samples=0,
-#                  gp_samples_alpha=0.1,
-#                  init_gp_noise=1e-5,
-#                  gp_density_norm=True,
-#                  gp_learnable_noise=False):
-
-#         super().__init__()
-
-#         self.out_channels = out_channels
-#         self.use_density = use_density
-#         self.in_channels = in_channels + 1 if self.use_density else in_channels
-
-#         self.projection = nn.Linear(self.in_channels, self.out_channels)
-#         self.projection.apply(custom_init)
-
-#         self.sigma = nn.Parameter(np.log(init_length_scale) *
-#                                   torch.ones(self.in_channels),
-#                                   requires_grad=learn_length_scale)
-
-#         self.gp_noise = nn.Parameter(torch.tensor(init_gp_noise), requires_grad=gp_learnable_noise)
-#         self.sigma_fn = torch.exp
-#         self.gp_posterior_from_samples = gp_posterior_from_samples
-#         self.gp_density_norm = gp_density_norm
-#         self.gp_samples_alpha = gp_samples_alpha
-
-#         self.representation = None
-#         self.last_prediction = None
-
-#     def build_weight_model(self):
-#         """Returns a function point-wise function that transforms the
-#         `in_channels + 1`-dimensional representation to dimensionality
-#         `out_channels`.
-
-#         Returns:
-#             :class:`torch.nn.Module`: Linear layer applied point-wise to
-#                 channels.
-#         """
-#         model = nn.Sequential(
-#             nn.Linear(self.in_channels, self.out_channels),
-#         )
-#         init_sequential_weights(model)
-#         return model
-
-#     def forward(self, x, y, t, store_rep=False):
-#         """Forward pass through the layer with evaluations at locations `t`.
-
-#         Args:
-#             x (tensor): Inputs of observations of shape `(n, 1)`.
-#             y (tensor): Outputs of observations of shape `(n, in_channels)`.
-#             t (tensor): Inputs to evaluate function at of shape `(m, 1)`.
-
-#         Returns:
-#             tensor: Outputs of evaluated function at `z` of shape
-#                 `(m, out_channels)`.
-#         """
-#         # Ensure that `x`, `y`, and `t` are rank-3 tensors.
-#         if len(x.shape) == 2:
-#             x = x.unsqueeze(2)
-#         if len(y.shape) == 2:
-#             y = y.unsqueeze(2)
-#         if len(t.shape) == 2:
-#             t = t.unsqueeze(2)
-
-#         # Compute shapes.
-#         batch_size = x.shape[0]
-#         n_in = x.shape[1]
-#         n_out = t.shape[1]
-
-#         # # try GP ------------------------------------------
-#         # # x has shape (B, N, 1)
-#         # # t has shape (B, M, 1)
-#         K = torch.exp(-0.5*torch.pow(x - x.transpose(1, 2), 2) / self.sigma_fn(self.sigma[-1])**2)  # (B, N, N)
-#         # dists = torch.pow(x - x.transpose(1, 2), 2)
-#         # K = self.rbf(dists).sum(-1)
-#         # L = torch.cholesky(K + self.gp_noise * torch.eye(K.shape[-1]).to(device=K.device)[None, :, :])  # (B, N, N)
-#         L = gpytorch.utils.cholesky.psd_safe_cholesky(K)
-#         dists = torch.pow(x - t.transpose(1, 2), 2)
-#         # K_s = self.rbf(dists).sum(-1)
-#         K_s = torch.exp(-0.5*dists / self.sigma_fn(self.sigma[-1])**2)  # (B, N, M)
-#         L_k, _ = torch.solve(K_s, L)  # (B, N, M)
-#         y_out = torch.bmm(L_k.transpose(1, 2), torch.solve(y, L)[0])  # (B, M, 1)
-        
-#         if self.use_density:  # (B, N, M, 1)
-#             weights = torch.exp(-0.5*dists / self.sigma_fn(self.sigma[0])**2).unsqueeze(-1)
-#             density = torch.ones(batch_size, 1, 1, 1).to(dists.device) * weights
-#             density = torch.sum(density, 1)  # (B, M, 1)
-#             if self.gp_density_norm:
-#                 y_out /= (density + 1e-8)
-#             y_out = torch.cat((density, y_out), -1)
-
-#         if store_rep:
-#             self.representation = L_k
-#             self.last_prediction = y_out
-
-#         # Apply the point-wise function.
-#         # Shape: (batch, n_out, out_channels).
-#         y_out = y_out.view(batch_size * n_out, self.in_channels)
-#         y_out = self.projection(y_out)
-#         y_out = y_out.view(batch_size, n_out, self.out_channels)
-
-#         return y_out
-
-#     def sample(self, target_in, num_samples, gp_lambda=0.2):
-#         """Draw GP samples for target_in.
-
-#         Args:
-#             target_in (torch.tensor): New input values, shape (B, M, 1).
-#             num_samples (int): Draw this many samples.
-#             gp_lambda (float): GP covariance will be squeezed by this factor.
-
-#         Returns:
-#             torch.tensor: Output values at target_in, shape (num_samples, B, M, Cout).
-
-#         """
-
-#         if self.representation is None or self.last_prediction is None:
-#             raise ValueError("Please run a forward pass with store_rep=True!")
-
-#         if target_in.shape[1] != self.representation.shape[-1]:
-#             raise IndexError("target_in shape is {}, representation shape is {}. \
-#                 Second axis of target_in and last axis of representation should \
-#                 match!".format(target_in.shape, self.representation.shape))
-
-#         mu = self.last_prediction
-#         if self.use_density:
-#             density, mu = mu[..., :1], mu[..., 1:]  # (B, M, 1)
-#         L_k = self.representation  # (B, N, M)
-
-#         # dists = torch.pow(target_in - target_in.transpose(1, 2), 2)
-#         # K_ss = self.rbf(dists).sum(-1)
-#         K_ss = torch.exp(-0.5*torch.pow(target_in - target_in.transpose(1, 2), 2) / self.sigma_fn(self.sigma[-1])**2)  # (B, M, M)
-#         # L_ss = torch.cholesky(K_ss + self.gp_noise * torch.eye(K_ss.shape[-1]).to(device=K_ss.device)[None, :, :] - torch.bmm(L_k.transpose(1, 2), L_k))  # (B, M, M)
-#         L_ss = gpytorch.utils.cholesky.psd_safe_cholesky(K_ss - torch.bmm(L_k.transpose(1, 2), L_k))
-
-#         # THIS CURRENTLY ONLY WORKS FOR IN_CHANNELS=1 !!!
-#         samples = mu + gp_lambda * torch.bmm(L_ss, torch.randn(mu.shape[0], L_ss.shape[-1], num_samples).to(device=L_ss.device))  # (B, M, num_samples)
-#         samples = samples.transpose(1, 2).transpose(0, 1)  # (num_samples, B, M)
-#         samples = torch.cat((density.unsqueeze(0).repeat(num_samples, 1, 1, 1), samples.unsqueeze(-1)), -1)  # (num_samples, B, M, in_channels)
-#         B, M = samples.shape[1:3]
-#         samples = samples.view(num_samples*B*M, self.in_channels)
-#         samples = self.projection(samples)
-#         samples = samples.view(num_samples, B, M, self.out_channels)
-
-#         return samples
-
-#     def rbf(self, dists):
-#         """Compute the RBF values for the distances using the correct length
-#         scales.
-
-#         Args:
-#             dists (tensor): Pair-wise distances between `x` and `t`.
-
-#         Returns:
-#             tensor: Evaluation of `psi(x, t)` with `psi` an RBF kernel.
-#         """
-#         # Compute the RBF kernel, broadcasting appropriately.
-#         scales = self.sigma_fn(self.sigma)[None, None, None, :]
-#         a, b, c = dists.shape
-#         return torch.exp(-0.5 * dists.view(a, b, c, -1) / scales ** 2)
-
-
-
 class ConvDeepSet(nn.Module):
     """
     One-dimensional set convolution layer. Uses an RBF kernel.
@@ -560,7 +252,7 @@ class ConvDeepSet(nn.Module):
                  in_channels,
                  out_channels,
                  learn_length_scale=True,
-                 init_length_scale=1.,
+                 init_length_scale=0.1,
                  use_density=True,
                  use_density_norm=True):
 
@@ -766,10 +458,7 @@ class GPConvDeepSet(ConvDeepSet):
         dists = torch.pow(target_in.unsqueeze(2) - target_in.unsqueeze(1), 2)
         dists = dists.sum(-1)  # (B, M, M)
         K_ss = torch.exp(-0.5 * dists / self.sigma_fn(self.sigma[-1])**2)
-        # K_ss = self.rbf(dists).sum(-1)  # (B, M, M)
         K_ss -= torch.bmm(L_k.transpose(1, 2), L_k)
-        # We're allowing a little more jitter for the cholesky decomp,
-        # because this part is relatively unstable.
         L_ss = gpytorch.utils.cholesky.psd_safe_cholesky(K_ss)
 
         # Draw samples
@@ -807,23 +496,25 @@ class ConvCNP(nn.Module):
 
     def __init__(self,
                  use_gp=False,
-                 points_per_unit=20,
                  learn_length_scale=True,
-                 init_length_scale=1.,
+                 init_length_scale=0.1,
                  use_density=True,
                  use_density_norm=True,
+                 points_per_unit=20,
+                 range_padding=0.1,
+                 grid_divisible_by=64,
                  *args, **kwargs):
 
         super(ConvCNP, self).__init__()
 
         self.activation = nn.Sigmoid()
-        self.sigma_fn = nn.Softplus()
         self.conv_net = UNet()
-        self.multiplier = 2 ** self.conv_net.num_halving_layers
 
-        # Compute initialisation.
+        self.use_gp = use_gp
         self.points_per_unit = points_per_unit
-        # init_length_scale = 2.0 / self.points_per_unit
+        self.range_padding = range_padding
+        self.grid_divisible_by = grid_divisible_by
+        self.grid = None
 
         if use_gp:
             self.l0 = GPConvDeepSet(
@@ -842,6 +533,7 @@ class ConvCNP(nn.Module):
                 init_length_scale=init_length_scale,
                 use_density=True
             )
+
         self.mean_layer = ConvDeepSet(
             in_channels=self.conv_net.out_channels,
             out_channels=1,
@@ -849,6 +541,7 @@ class ConvCNP(nn.Module):
             init_length_scale=init_length_scale,
             use_density=False
         )
+
         self.sigma_layer = ConvDeepSet(
             in_channels=self.conv_net.out_channels,
             out_channels=1,
@@ -879,21 +572,15 @@ class ConvCNP(nn.Module):
         if len(x_out.shape) == 2:
             x_out = x_out.unsqueeze(2)
 
-        # Determine the grid on which to evaluate functional representation.
-        x_min = min(torch.min(x).cpu().numpy(),
-                    torch.min(x_out).cpu().numpy()) - 0.1
-        x_max = max(torch.max(x).cpu().numpy(),
-                    torch.max(x_out).cpu().numpy()) + 0.1
-        num_points = int(to_multiple(self.points_per_unit * (x_max - x_min),
-                                     self.multiplier))
-        x_grid = torch.linspace(x_min, x_max, num_points).to(x.device)
-        x_grid = x_grid[None, :, None].repeat(x.shape[0], 1, 1)
+        x_grid = make_grid((x, x_out), self.points_per_unit, self.range_padding, self.grid_divisible_by)
+        if store_rep:
+            self.grid = x_grid
 
         # Apply first layer and conv net. Take care to put the axis ranging
         # over the data last.
         h = self.activation(self.l0(x, y, x_grid, store_rep=store_rep))  # (B, gridsize, C)
         h = h.permute(0, 2, 1)  # (N, C, gridsize)
-        h = h.reshape(h.shape[0], h.shape[1], num_points)  # (N, C, gridsize)
+        h = h.reshape(h.shape[0], h.shape[1], -1)  # (N, C, gridsize)
         h = self.conv_net(h)
         h = h.reshape(h.shape[0], h.shape[1], -1).permute(0, 2, 1)
 
@@ -903,7 +590,7 @@ class ConvCNP(nn.Module):
 
         # Produce means and standard deviations.
         mean = self.mean_layer(x_grid, h, x_out)
-        sigma = self.sigma_fn(self.sigma_layer(x_grid, h, x_out))
+        sigma = self.sigma_layer(x_grid, h, x_out)
 
         return torch.cat((mean, sigma), -1)
 
@@ -915,12 +602,15 @@ class ConvCNP(nn.Module):
 
     def sample(self, target_x, num_samples, gp_lambda=0.2):
 
-        x_min = target_x.min().item() - 0.1
-        x_max = target_x.max().item() + 0.1
-        num_points = int(to_multiple(self.points_per_unit * (x_max - x_min),
-                                     self.multiplier))
-        x_grid = torch.linspace(x_min, x_max, num_points).to(target_x.device)
-        x_grid = x_grid[None, :, None].repeat(target_x.shape[0], 1, 1)
+        # x_min = target_x.min().item() - 0.1
+        # x_max = target_x.max().item() + 0.1
+        # num_points = int(to_multiple(self.points_per_unit * (x_max - x_min),
+        #                              self.multiplier))
+        # x_grid = torch.linspace(x_min, x_max, num_points).to(target_x.device)
+        # x_grid = x_grid[None, :, None].repeat(target_x.shape[0], 1, 1)
+
+        # x_grid = make_grid(target_x, self.points_per_unit, 0.1, self.multiplier)
+        x_grid = self.grid
 
         samples = self.l0.sample(x_grid, num_samples, gp_lambda=gp_lambda)  # (num_samples, B, M, l0.out_channels)
         samples = self.activation(samples)
@@ -934,12 +624,17 @@ class ConvCNP(nn.Module):
         means = self.mean_layer(x_grid.repeat(num_samples, 1, 1), samples, target_x.repeat(num_samples, 1, 1))
         means = means.view(num_samples, B, *means.shape[1:])
 
-        sigmas = self.sigma_fn(self.sigma_layer(x_grid.repeat(num_samples, 1, 1), samples, target_x.repeat(num_samples, 1, 1)))
+        sigmas = self.sigma_layer(x_grid.repeat(num_samples, 1, 1), samples, target_x.repeat(num_samples, 1, 1))
         sigmas = sigmas.view(num_samples, B, *sigmas.shape[1:])
 
         return torch.cat((means, sigmas), -1)
 
 
+
+########################################################################
+### BELOW IS AN ATTEMPT AT A MORE GENERIC VERSION THAT USES GPYTORCH
+### KERNELS. SO FAR THE GRADIENTS ARE PRETTY UNSTABLE.
+########################################################################
 
 # class ConvDeepSet(nn.Module):
 #     """
