@@ -508,7 +508,11 @@ class ConvCNP(nn.Module):
         super(ConvCNP, self).__init__()
 
         self.activation = nn.Sigmoid()
-        self.conv_net = UNet()
+        self.conv_net = generic.SimpleUNet(
+            in_channels=8,
+            out_channels=8
+        )
+        self.conv_net.apply(custom_init)
 
         self.use_gp = use_gp
         self.points_per_unit = points_per_unit

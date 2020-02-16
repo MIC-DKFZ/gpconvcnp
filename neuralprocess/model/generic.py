@@ -231,7 +231,7 @@ class SimpleUNet(nn.Module):
         super().__init__()
 
         self.in_channels = in_channels
-        self.out_channels = out_channels
+        self.out_channels = out_channels + int(input_bypass) * in_channels
         self.num_blocks = num_blocks
         self.input_bypass = input_bypass
 
