@@ -66,7 +66,9 @@ class StepFunctionGenerator(FunctionGenerator):
             else:
                 break
         else:
-            raise RuntimeError("Tried to generate step function with {} steps and minimum step width of {:.3f}, but failed 1000 times.".format(number_of_steps, self.config.min_step_width))
+            raise RuntimeError("Tried to generate step function with {} steps \
+                and minimum step width of {:.3f}, but failed 1000000 times."\
+                .format(number_of_steps, self.min_step_width))
 
         y = np.zeros((self.batch_size, *x.shape[1:]), dtype=np.float32)
         new_values = np.random.uniform(*self.y_range, size=(self.batch_size, 1))
