@@ -96,7 +96,7 @@ def make_defaults(representation_channels=128):
                 hidden_layers=6
             )
         ),
-        custom_init=False,
+        output_transform_logvar=True,
 
         # Optimization
         optimizer=optim.Adam,
@@ -157,78 +157,18 @@ def make_defaults(representation_channels=128):
     CONVCNP = Config(
         model=ConvCNP,
         model_kwargs=dict(
+            learn_length_scale=True,
             points_per_unit=20,
-            range_padding=0.1,
-            grid_divisible_by=64
+            use_gp=False,
         ),
-        modules=dict(
-            input_interpolation=ConvDeepSet,
-            convnet=generic.SimpleUNet,
-            output_interpolation=ConvDeepSet
-        ),
-        modules_kwargs=dict(
-            input_interpolation=dict(
-                kernel=gpytorch.kernels.RBFKernel,
-                kernel_kwargs=dict(),
-                use_density=True,
-                use_density_norm=True,
-                project_to=8,
-                project_bias=True,
-                project_in_channels=2,  # because use_density=True
-            ),
-            convnet=dict(
-                in_channels=8,
-                out_channels=8,
-                num_blocks=6,
-                input_bypass=True,
-                encoding_block_type=generic.ConvNormActivationPool,
-                encoding_block_kwargs=dict(
-                    conv_op=nn.Conv1d,
-                    conv_kwargs=dict(
-                        kernel_size=5,
-                        stride=2,
-                        padding=2
-                    ),
-                    activation_op=nn.ReLU,
-                    activation_kwargs=dict(
-                        inplace=True
-                    )
-                ),
-                decoding_block_type=generic.UpsampleConvNormActivation,
-                decoding_block_kwargs=dict(
-                    conv_op=nn.ConvTranspose1d,
-                    conv_kwargs=dict(
-                        kernel_size=5,
-                        stride=2,
-                        padding=2,
-                        output_padding=1
-                    ),
-                    activation_op=nn.ReLU,
-                    activation_kwargs=dict(
-                        inplace=True
-                    )
-                )
-            ),
-            output_interpolation=dict(
-                kernel=gpytorch.kernels.RBFKernel,
-                kernel_kwargs=dict(),
-                use_density=False,
-                use_density_norm=False,
-                project_to=2,
-                project_bias=True,
-                project_in_channels=16  # because input_bypass=True in convnet
-            )
-        ),
-        custom_init=True
+        output_transform_logvar=True
     )
 
-    GPCONVCNP = Config(  # also set CONVCNP!
-        modules=dict(input_interpolation=GPConvDeepSet),
-        modules_kwargs=dict(
-            input_interpolation=dict(
-                gp_lambda=0.2,
-                gp_sample_from_posterior=0,
-            )
+    GPCONVCNP = Config(
+        model_kwargs=dict(
+            use_gp=True,
+            init_length_scale=0.1,
+            use_density_norm=False
         )
     )
 
@@ -302,20 +242,6 @@ class NeuralProcessExperiment(PytorchExperiment):
         modules.update(self.config.model_kwargs)
         self.model = self.config.model(**modules)
 
-        if self.config.custom_init:
-            def init_weights(m):
-                if type(m) == nn.Linear:
-                    nn.init.xavier_normal_(m.weight, 0.2)
-                    if hasattr(m, "bias"):
-                        nn.init.constant_(m.bias, 0)
-                elif type(m) in (nn.Conv1d, nn.ConvTranspose1d):
-                    nn.init.xavier_normal_(m.weight, 1.)
-                    if hasattr(m, "bias"):
-                        nn.init.constant_(m.bias, 1e-3)
-                else:
-                    pass
-            self.model.apply(init_weights)
-
         self.clog.show_text(repr(self.model), "Model")
 
     def setup_optimization(self):
@@ -371,45 +297,37 @@ class NeuralProcessExperiment(PytorchExperiment):
 
         t1 = time.time()
 
-        # with torch.autograd.detect_anomaly():
-
         context_in = batch["context_in"].to(self.config.device)
         context_out = batch["context_out"].to(self.config.device)
         target_in = batch["target_in"].to(self.config.device)
         target_out = batch["target_out"].to(self.config.device)
 
-        with torch.autograd.detect_anomaly():
+        prediction = self.model(context_in,
+                                context_out,
+                                target_in,
+                                target_out,
+                                store_rep=False)
+        prediction = tensor_to_loc_scale(
+            prediction,
+            distributions.Normal,
+            logvar_transform=self.config.output_transform_logvar,
+            axis=2
+        )
+        batch["prediction_mu"] = prediction.loc.detach().cpu()
+        batch["prediction_sigma"] = prediction.scale.detach().cpu()
 
-            try:
+        loss_recon = -prediction.log_prob(target_out)
+        loss_recon = loss_recon.mean(0).sum()  # batch mean
+        if self.config.clip_loss > 0:
+            loss_recon = torch.clamp(loss_recon, -1e9, self.config.clip_loss)
+        loss_total = loss_recon
+        if hasattr(self.model, "prior"):
+            loss_latent = distributions.kl_divergence(self.model.posterior,
+                                                        self.model.prior)
+            loss_latent = loss_latent.mean(0).sum()  # batch mean
+            loss_total += loss_latent
 
-                prediction = self.model(context_in,
-                                        context_out,
-                                        target_in,
-                                        target_out,
-                                        store_rep=False)
-                prediction = tensor_to_loc_scale(prediction,
-                                                distributions.Normal,
-                                                logvar_transform=True,
-                                                axis=2)
-                batch["prediction_mu"] = prediction.loc.detach().cpu()
-                batch["prediction_sigma"] = prediction.scale.detach().cpu()
-
-                loss_recon = -prediction.log_prob(target_out)
-                loss_recon = loss_recon.mean(1).sum()  # batch mean
-                loss_total = loss_recon
-                if hasattr(self.model, "prior"):
-                    loss_latent = distributions.kl_divergence(self.model.posterior,
-                                                            self.model.prior)
-                    loss_latent = loss_latent.mean(0).sum()  # batch mean
-                    loss_total += loss_latent
-
-                loss_total.backward()
-
-            except Exception as e:
-
-                import IPython
-                IPython.embed()
-
+        loss_total.backward()
         if self.config.clip_grad > 0:
             nn.utils.clip_grad_norm_(self.model.parameters(),
                                      self.config.clip_grad)
@@ -462,14 +380,14 @@ class NeuralProcessExperiment(PytorchExperiment):
             return
 
         # we select the first batch item for plotting
-        context_in = summary["context_in"][:, 0, 0].numpy()
-        context_out = summary["context_out"][:, 0, 0].numpy()
-        target_in = summary["target_in"][:, 0, 0].numpy()
-        target_out = summary["target_out"][:, 0, 0].numpy()
-        prediction_mu = summary["prediction_mu"][:, 0, 0].numpy()
-        prediction_sigma = summary["prediction_sigma"][:, 0, 0].numpy()
+        context_in = summary["context_in"][0, :, 0].numpy()
+        context_out = summary["context_out"][0, :, 0].numpy()
+        target_in = summary["target_in"][0, :, 0].numpy()
+        target_out = summary["target_out"][0, :, 0].numpy()
+        prediction_mu = summary["prediction_mu"][0, :, 0].numpy()
+        prediction_sigma = summary["prediction_sigma"][0, :, 0].numpy()
         if "samples" in summary:
-            samples = summary["samples"][:, :, 0, 0].numpy().T
+            samples = summary["samples"][:, 0, :, 0].numpy().T
 
         if validate:
             name = "val" + os.sep
@@ -568,15 +486,17 @@ class NeuralProcessExperiment(PytorchExperiment):
                                     target_in,
                                     target_out,
                                     store_rep=False)
-            prediction = tensor_to_loc_scale(prediction,
-                                             distributions.Normal,
-                                             logvar_transform=True,
-                                             axis=2)
+            prediction = tensor_to_loc_scale(
+                prediction,
+                distributions.Normal,
+                logvar_transform=self.config.output_transform_logvar,
+                axis=2
+            )
             batch["prediction_mu"] = prediction.loc.detach().cpu()
             batch["prediction_sigma"] = prediction.scale.detach().cpu()
 
             loss_recon = -prediction.log_prob(target_out)
-            loss_recon = loss_recon.mean(1).sum()  # batch mean
+            loss_recon = loss_recon.mean(0).sum()  # batch mean
             loss_total = loss_recon
             batch["loss_recon"] = loss_recon.item()  # logging
 
@@ -594,8 +514,11 @@ class NeuralProcessExperiment(PytorchExperiment):
             summary = self.make_samples()
             summary["epoch"] = epoch
             self.make_plots(summary, save=True, show=True, validate=True)
-        except (ValueError, NotImplementedError) as e:  # if models can't sample
-            pass
+        # except (ValueError, NotImplementedError, AttributeError) as e:  # if models can't sample
+        #     pass
+        # except RuntimeError as e:  # numerical instability in GP cholesky
+        #     print("Skipped sampling because of numerical instability.")
+        #     pass
         except Exception as e:
             raise e
 
@@ -623,10 +546,12 @@ class NeuralProcessExperiment(PytorchExperiment):
                                     target_in,
                                     target_out,
                                     store_rep=True)
-            prediction = tensor_to_loc_scale(prediction,
-                                             distributions.Normal,
-                                             logvar_transform=True,
-                                             axis=2)
+            prediction = tensor_to_loc_scale(
+                prediction,
+                distributions.Normal,
+                logvar_transform=self.config.output_transform_logvar,
+                axis=2
+            )
                     
             samples = self.model.sample(target_in, self.config.num_samples)
             samples = tensor_to_loc_scale(samples,

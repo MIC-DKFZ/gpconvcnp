@@ -57,11 +57,11 @@ def stack_batch(tensor):
 
 
 
-def unstack_batch(tensor, N):
+def unstack_batch(tensor, B):
     """Reverses stack_batch."""
 
-    B = tensor.shape[0] // N
-    return tensor.reshape(N, B, *tensor.shape[1:])
+    N = tensor.shape[0] // B
+    return tensor.reshape(B, N, *tensor.shape[1:])
 
 
 
@@ -73,7 +73,7 @@ def make_grid(x, points_per_unit, padding=0.1, grid_divisible_by=None):
     same range.
 
     Args:
-        x (torch.tensor): Input values, shape (N, B, Cin). Can alternatively
+        x (torch.tensor): Input values, shape (B, N, Cin). Can alternatively
             be a list or tuple of tensors, then the min/max will be taken
             over all tensors.
         points_per_unit (int): The grid resolution.
@@ -82,7 +82,7 @@ def make_grid(x, points_per_unit, padding=0.1, grid_divisible_by=None):
             by this number.
 
     Returns:
-        torch.tensor: The grid
+        torch.tensor: The grid, shape (B, G, Cin)
 
     """
 
@@ -103,10 +103,9 @@ def make_grid(x, points_per_unit, padding=0.1, grid_divisible_by=None):
 
     num_points = int(points_per_unit * (max_ - min_))
     if grid_divisible_by not in (None, 0):
-        while num_points % grid_divisible_by != 0:
-            num_points += 1
-    grid = torch.linspace(min_, max_, num_points).reshape(-1, 1, 1)
-    grid = grid.repeat(1, *x.shape[1:])
+        num_points += grid_divisible_by - num_points % grid_divisible_by
+    grid = torch.linspace(min_, max_, num_points).reshape(1, -1, 1)
+    grid = grid.repeat(x.shape[0], 1, x.shape[2])
     grid = grid.to(dtype=x.dtype, device=x.device)
 
     return grid

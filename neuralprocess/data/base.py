@@ -101,10 +101,10 @@ class FunctionGenerator(SlimDataLoaderBase):
                                              size=context_out.shape)
 
         return dict(
-            context_in=torch.from_numpy(context_in).transpose(0, 1),
-            context_out=torch.from_numpy(context_out).transpose(0, 1),
-            target_in=torch.from_numpy(target_in).transpose(0, 1),
-            target_out=torch.from_numpy(target_out).transpose(0, 1)
+            context_in=torch.from_numpy(context_in),
+            context_out=torch.from_numpy(context_out),
+            target_in=torch.from_numpy(target_in),
+            target_out=torch.from_numpy(target_out)
         )
 
     def apply(self, x):
