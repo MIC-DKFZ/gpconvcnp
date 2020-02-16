@@ -77,24 +77,24 @@ class AttentiveNeuralProcess(NeuralProcess):
         to encode a deterministic representation.
 
         Args:
-            context_in (torch.tensor): Shape (N, B, Cin, ...).
-            context_out (torch.tensor): Shape (N, B, Cout, ...).
-            target_in (torch.tensor): Shape (M, B, Cin, ...).
+            context_in (torch.tensor): Shape (B, N, Cin, ...).
+            context_out (torch.tensor): Shape (B, N, Cout, ...).
+            target_in (torch.tensor): Shape (B, M Cin, ...).
             store_rep (bool): Store representation.
 
         Returns:
-            torch.tensor: Deterministic representation, shape (M, B, R, ...).
+            torch.tensor: Deterministic representation, shape (B, M, R, ...).
 
         """
 
-        N = context_in.shape[0]
-        M = target_in.shape[0]
+        B, N = context_in.shape[:2]
+        M = target_in.shape[1]
         S = tuple(target_in.shape[3:])
                         
         encoder_input = torch.cat(
             (stack_batch(context_in), stack_batch(context_out)), 1)
         representations = self.deterministic_encoder(encoder_input)
-        representations = unstack_batch(representations, N)
+        representations = unstack_batch(representations, B)
 
         # get rid of spatial dimensions for attention
         target_in = target_in.reshape(*target_in.shape[:2], -1)
@@ -103,19 +103,22 @@ class AttentiveNeuralProcess(NeuralProcess):
 
         if self.project_to not in (0, None):
             target_in = self.project_query(stack_batch(target_in))
-            target_in = unstack_batch(target_in, M)
+            target_in = unstack_batch(target_in, B)
             context_in = self.project_key(stack_batch(context_in))
-            context_in = unstack_batch(context_in, N)
+            context_in = unstack_batch(context_in, B)
             representations = self.project_value(stack_batch(representations))
-            representations = unstack_batch(representations, N)
+            representations = unstack_batch(representations, B)
 
-        attention_output = self.attention(target_in, context_in, representations)
+        attention_output = self.attention(target_in.transpose(0, 1),
+                                          context_in.transpose(0, 1),
+                                          representations.transpose(0, 1))
         if isinstance(attention_output, (tuple, list)):
             attention_output, attention_weights = attention_output
         else:
             attention_weights = None
+        attention_output = attention_output.transpose(0, 1)
 
-        # attention_output (M, B, embed_dim)
+        # attention_output (B, M, embed_dim)
         # attention_weights (B, M, N)
         # broadcast to appropriate spatial shape
         if len(S) > 0:

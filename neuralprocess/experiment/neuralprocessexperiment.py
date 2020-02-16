@@ -157,16 +157,31 @@ def make_defaults(representation_channels=128):
     CONVCNP = Config(
         model=ConvCNP,
         model_kwargs=dict(
-            learn_length_scale=True,
-            points_per_unit=20,
             use_gp=False,
+            learn_length_scale=True,
+            init_length_scale=0.1,
+            use_density=True,
+            use_density_norm=True,
+            points_per_unit=20,
+            range_padding=0.1,
+            grid_divisible_by=64,
+        ),
+        modules=dict(
+            conv_net=generic.SimpleUNet
+        ),
+        modules_kwargs=dict(
+            conv_net=dict(
+                in_channels=8,
+                out_channels=8,
+                num_blocks=6,
+                input_bypass=True
+            )
         )
     )
 
-    GPCONVCNP = Config(
+    GPCONVCNP = Config(  # Requires CONVCNP
         model_kwargs=dict(
             use_gp=True,
-            init_length_scale=0.1,
             use_density_norm=False
         )
     )
@@ -282,19 +297,11 @@ class NeuralProcessExperiment(PytorchExperiment):
 
     def train(self, epoch):
 
-        if epoch == 0:
-            self.data_times = []
-            self.pass_times = []
-
-        t0 = time.time()
-
         self.model.train()
         self.optimizer.zero_grad()
 
         batch = next(self.generator)
         batch["epoch"] = epoch  # logging
-
-        t1 = time.time()
 
         context_in = batch["context_in"].to(self.config.device)
         context_out = batch["context_out"].to(self.config.device)
@@ -331,16 +338,6 @@ class NeuralProcessExperiment(PytorchExperiment):
             nn.utils.clip_grad_norm_(self.model.parameters(),
                                      self.config.clip_grad)
         self.optimizer.step()
-
-        t2 = time.time()
-
-        self.data_times.append(t1-t0)
-        self.pass_times.append(t2-t1)
-        if (epoch + 1) % 1000 == 0:
-            print(np.mean(self.data_times))
-            print(np.mean(self.pass_times))
-            self.data_times = []
-            self.pass_times = []
 
         batch["loss_recon"] = loss_recon.item()  # logging
         if hasattr(self.model, "prior"):

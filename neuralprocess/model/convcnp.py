@@ -18,76 +18,6 @@ from neuralprocess.model import generic
 
 
 
-def to_multiple(x, multiple):
-    """Convert `x` to the nearest above multiple.
-
-    Args:
-        x (number): Number to round up.
-        multiple (int): Multiple to round up to.
-
-    Returns:
-        number: `x` rounded to the nearest above multiple of `multiple`.
-    """
-    if x % multiple == 0:
-        return x
-    else:
-        return x + multiple - x % multiple
-
-
-
-def init_sequential_weights(model, bias=0.0):
-    """Initialize the weights of a nn.Sequential model with Glorot
-    initialization.
-
-    Args:
-        model (:class:`nn.Sequential`): Container for model.
-        bias (float, optional): Value for initializing bias terms. Defaults
-            to `0.0`.
-
-    Returns:
-        (nn.Sequential): model with initialized weights
-    """
-    for layer in model:
-        if hasattr(layer, 'weight'):
-            nn.init.xavier_normal_(layer.weight, gain=1)
-        if hasattr(layer, 'bias'):
-            nn.init.constant_(layer.bias, bias)
-    return model
-
-
-def compute_dists(x, y):
-    """Fast computation of pair-wise distances for the 1d case.
-
-    Args:
-        x (tensor): Inputs of shape `(batch, n, 1)`.
-        y (tensor): Inputs of shape `(batch, m, 1)`.
-
-    Returns:
-        tensor: Pair-wise distances of shape `(batch, n, m)`.
-    """
-    assert x.shape[2] == 1 and y.shape[2] == 1, \
-        'The inputs x and y must be 1-dimensional observations.'
-    return (x - y.permute(0, 2, 1)) ** 2
-
-
-
-def init_layer_weights(layer):
-    """Initialize the weights of a :class:`nn.Layer` using Glorot
-    initialization.
-
-    Args:
-        layer (:class:`nn.Module`): Single dense or convolutional layer from
-            :mod:`torch.nn`.
-
-    Returns:
-        :class:`nn.Module`: Single dense or convolutional layer with
-            initialized weights.
-    """
-    nn.init.xavier_normal_(layer.weight, gain=1)
-    nn.init.constant_(layer.bias, 1e-3)
-
-
-
 def custom_init(m):
     """Custom initialization used in ConvCNP."""
 
@@ -99,137 +29,6 @@ def custom_init(m):
         nn.init.xavier_normal_(m.weight, 1.)
         if hasattr(m, 'bias'):
             nn.init.constant_(m.bias, 1e-3)
-
-
-
-def pad_concat(t1, t2):
-    """Concat the activations of two layer channel-wise by padding the layer
-    with fewer points with zeros.
-
-    Args:
-        t1 (tensor): Activations from first layers of shape `(batch, n1, c1)`.
-        t2 (tensor): Activations from second layers of shape `(batch, n2, c2)`.
-
-    Returns:
-        tensor: Concatenated activations of both layers of shape
-            `(batch, max(n1, n2), c1 + c2)`.
-    """
-    if t1.shape[2] > t2.shape[2]:
-        padding = t1.shape[2] - t2.shape[2]
-        if padding % 2 == 0:  # Even difference
-            t2 = F.pad(t2, (int(padding / 2), int(padding / 2)), 'reflect')
-        else:  # Odd difference
-            t2 = F.pad(t2, (int((padding - 1) / 2), int((padding + 1) / 2)),
-                       'reflect')
-    elif t2.shape[2] > t1.shape[2]:
-        padding = t2.shape[2] - t1.shape[2]
-        if padding % 2 == 0:  # Even difference
-            t1 = F.pad(t1, (int(padding / 2), int(padding / 2)), 'reflect')
-        else:  # Odd difference
-            t1 = F.pad(t1, (int((padding - 1) / 2), int((padding + 1) / 2)),
-                       'reflect')
-
-    return torch.cat([t1, t2], dim=1)
-
-
-
-
-class UNet(nn.Module):
-    """Large convolutional architecture from 1d experiments in the paper.
-    This is a 12-layer residual network with skip connections implemented by
-    concatenation.
-
-    Args:
-        in_channels (int, optional): Number of channels on the input to
-            network. Defaults to 8.
-    """
-
-    def __init__(self, in_channels=8):
-        super(UNet, self).__init__()
-        self.activation = nn.ReLU()
-        self.in_channels = in_channels
-        self.out_channels = 16
-        self.num_halving_layers = 6
-
-        self.l1 = nn.Conv1d(in_channels=self.in_channels,
-                            out_channels=self.in_channels,
-                            kernel_size=5, stride=2, padding=2)
-        self.l2 = nn.Conv1d(in_channels=self.in_channels,
-                            out_channels=2 * self.in_channels,
-                            kernel_size=5, stride=2, padding=2)
-        self.l3 = nn.Conv1d(in_channels=2 * self.in_channels,
-                            out_channels=2 * self.in_channels,
-                            kernel_size=5, stride=2, padding=2)
-        self.l4 = nn.Conv1d(in_channels=2 * self.in_channels,
-                            out_channels=4 * self.in_channels,
-                            kernel_size=5, stride=2, padding=2)
-        self.l5 = nn.Conv1d(in_channels=4 * self.in_channels,
-                            out_channels=4 * self.in_channels,
-                            kernel_size=5, stride=2, padding=2)
-        self.l6 = nn.Conv1d(in_channels=4 * self.in_channels,
-                            out_channels=8 * self.in_channels,
-                            kernel_size=5, stride=2, padding=2)
-
-        for layer in [self.l1, self.l2, self.l3, self.l4, self.l5, self.l6]:
-            init_layer_weights(layer)
-
-        self.l7 = nn.ConvTranspose1d(in_channels=8 * self.in_channels,
-                                     out_channels=4 * self.in_channels,
-                                     kernel_size=5, stride=2, padding=2,
-                                     output_padding=1)
-        self.l8 = nn.ConvTranspose1d(in_channels=8 * self.in_channels,
-                                     out_channels=4 * self.in_channels,
-                                     kernel_size=5, stride=2, padding=2,
-                                     output_padding=1)
-        self.l9 = nn.ConvTranspose1d(in_channels=8 * self.in_channels,
-                                     out_channels=2 * self.in_channels,
-                                     kernel_size=5, stride=2, padding=2,
-                                     output_padding=1)
-        self.l10 = nn.ConvTranspose1d(in_channels=4 * self.in_channels,
-                                      out_channels=2 * self.in_channels,
-                                      kernel_size=5, stride=2, padding=2,
-                                      output_padding=1)
-        self.l11 = nn.ConvTranspose1d(in_channels=4 * self.in_channels,
-                                      out_channels=self.in_channels,
-                                      kernel_size=5, stride=2, padding=2,
-                                      output_padding=1)
-        self.l12 = nn.ConvTranspose1d(in_channels=2 * self.in_channels,
-                                      out_channels=self.in_channels,
-                                      kernel_size=5, stride=2, padding=2,
-                                      output_padding=1)
-
-        for layer in [self.l7, self.l8, self.l9, self.l10, self.l11, self.l12]:
-            init_layer_weights(layer)
-
-    def forward(self, x):
-        """Forward pass through the convolutional structure.
-
-        Args:
-            x (tensor): Inputs of shape `(batch, n_in, in_channels)`.
-
-        Returns:
-            tensor: Outputs of shape `(batch, n_out, out_channels)`.
-        """
-        h1 = self.activation(self.l1(x))
-        h2 = self.activation(self.l2(h1))
-        h3 = self.activation(self.l3(h2))
-        h4 = self.activation(self.l4(h3))
-        h5 = self.activation(self.l5(h4))
-        h6 = self.activation(self.l6(h5))
-        h7 = self.activation(self.l7(h6))
-
-        h7 = pad_concat(h5, h7)
-        h8 = self.activation(self.l8(h7))
-        h8 = pad_concat(h4, h8)
-        h9 = self.activation(self.l9(h8))
-        h9 = pad_concat(h3, h9)
-        h10 = self.activation(self.l10(h9))
-        h10 = pad_concat(h2, h10)
-        h11 = self.activation(self.l11(h10))
-        h11 = pad_concat(h1, h11)
-        h12 = self.activation(self.l12(h11))
-
-        return pad_concat(x, h12)
 
 
 
@@ -484,17 +283,32 @@ class GPConvDeepSet(ConvDeepSet):
 
 
 class ConvCNP(nn.Module):
-    """One-dimensional ConvCNP model.
+    """
+    One-dimensional ConvCNP model. At the moment this uses a hardcoded
+    RBF kernel, in the future it would make sense to integrate a kernel
+    argument that accepts e.g. GPyTorch kernels.
 
     Args:
-        learn_length_scale (bool): Learn the length scale.
-        points_per_unit (int): Number of points per unit interval on input.
-            Used to discretize function.
-        architecture (:class:`nn.Module`): Convolutional architecture to place
-            on functional representation (rho).
+        conv_net (torch.nn.Module): A CNN that transforms the input
+            interpolation. Needs to have in_channels and out_channels
+            attributes.
+        use_gp (bool): Use GPConvDeepSet instead of ConvDeepSet for
+            input interpolation.
+        learn_length_scale (bool): Learn the kernel length scale.
+        init_length_scale (float): Initial value for length scale.
+        use_density (bool): Append a density channel to interpolation.
+        use_density_norm (bool): Normalize interpolation by density.
+        points_per_unit (int): Construct a grid with this resolution.
+        range_padding (float): Pad the range by this value when constructing
+            the grid.
+        grid_divisible_by (int): Ensure the grid is divisible by this number.
+            Use this when the CNN performs some sort of pooling or strided
+            convolution.
+            
     """
 
     def __init__(self,
+                 conv_net,
                  use_gp=False,
                  learn_length_scale=True,
                  init_length_scale=0.1,
@@ -508,10 +322,7 @@ class ConvCNP(nn.Module):
         super(ConvCNP, self).__init__()
 
         self.activation = nn.Sigmoid()
-        self.conv_net = generic.SimpleUNet(
-            in_channels=8,
-            out_channels=8
-        )
+        self.conv_net = conv_net
         self.conv_net.apply(custom_init)
 
         self.use_gp = use_gp
@@ -521,7 +332,7 @@ class ConvCNP(nn.Module):
         self.grid = None
 
         if use_gp:
-            self.l0 = GPConvDeepSet(
+            self.input_interpolation = GPConvDeepSet(
                 in_channels=1,
                 out_channels=self.conv_net.in_channels,
                 learn_length_scale=learn_length_scale,
@@ -530,7 +341,7 @@ class ConvCNP(nn.Module):
                 use_density_norm=False
             )
         else:
-            self.l0 = ConvDeepSet(
+            self.input_interpolation = ConvDeepSet(
                 in_channels=1,
                 out_channels=self.conv_net.in_channels,
                 learn_length_scale=learn_length_scale,
@@ -538,7 +349,7 @@ class ConvCNP(nn.Module):
                 use_density=True
             )
 
-        self.mean_layer = ConvDeepSet(
+        self.output_interpolation_mean = ConvDeepSet(
             in_channels=self.conv_net.out_channels,
             out_channels=1,
             learn_length_scale=learn_length_scale,
@@ -546,7 +357,7 @@ class ConvCNP(nn.Module):
             use_density=False
         )
 
-        self.sigma_layer = ConvDeepSet(
+        self.output_interpolation_sigma = ConvDeepSet(
             in_channels=self.conv_net.out_channels,
             out_channels=1,
             learn_length_scale=learn_length_scale,
@@ -554,47 +365,55 @@ class ConvCNP(nn.Module):
             use_density=False
         )
 
-    def forward(self, x, y, x_out, y_out=None, store_rep=False, *args, **kwargs):
-        """Run the model forward.
+    def forward(self,
+                context_in,
+                context_out,
+                target_in,
+                target_out=None,
+                store_rep=False,
+                *args, **kwargs):
+        """
+        Forward pass in the Convolutional Conditional Neural Process.
 
         Args:
-            x (tensor): Observation locations of shape
-                `(batch, data, features)`.
-            y (tensor): Observation values of shape
-                `(batch, data, outputs)`.
-            x_out (tensor): Locations of outputs of shape
-                `(batch, data, features)`.
+            context_in (torch.tensor): Shape (N, B, Cin).
+            context_out (torch.tensor): Shape (N, B, Cout).
+            target_in (torch.tensor): Shape (M, B, Cin).
+            target_out (torch.tensor): Unused.
+            store_rep (bool): Store representation.
+
         Returns:
-            tuple[tensor]: Means and standard deviations of shape
-                `(batch_out, channels_out)`.
+            torch.tensor: Output of 'output_interpolation'.
+
         """
-        # Ensure that `x`, `y`, and `t` are rank-3 tensors.
-        if len(x.shape) == 2:
-            x = x.unsqueeze(2)
-        if len(y.shape) == 2:
-            y = y.unsqueeze(2)
-        if len(x_out.shape) == 2:
-            x_out = x_out.unsqueeze(2)
 
-        x_grid = make_grid((x, x_out), self.points_per_unit, self.range_padding, self.grid_divisible_by)
+        # Ensure that context_in, context_out, and target_in are rank-3 tensors.
+        if len(context_in.shape) == 2:
+            context_in = context_in.unsqueeze(2)
+        if len(context_out.shape) == 2:
+            context_out = context_out.unsqueeze(2)
+        if len(target_in.shape) == 2:
+            target_in = target_in.unsqueeze(2)
+
+        grid = make_grid((context_in, target_in),
+                         self.points_per_unit,
+                         self.range_padding,
+                         self.grid_divisible_by)
         if store_rep:
-            self.grid = x_grid
+            self.grid = grid
 
-        # Apply first layer and conv net. Take care to put the axis ranging
-        # over the data last.
-        h = self.activation(self.l0(x, y, x_grid, store_rep=store_rep))  # (B, gridsize, C)
-        h = h.permute(0, 2, 1)  # (N, C, gridsize)
-        h = h.reshape(h.shape[0], h.shape[1], -1)  # (N, C, gridsize)
-        h = self.conv_net(h)
-        h = h.reshape(h.shape[0], h.shape[1], -1).permute(0, 2, 1)
+        representation = self.input_interpolation(context_in,
+                                                  context_out,
+                                                  grid,
+                                                  store_rep=store_rep)
+        representation = self.activation(representation)  # (B, gridsize, R1)
 
-        # Check that shape is still fine!
-        if h.shape[1] != x_grid.shape[1]:
-            raise RuntimeError('Shape changed.')
-
-        # Produce means and standard deviations.
-        mean = self.mean_layer(x_grid, h, x_out)
-        sigma = self.sigma_layer(x_grid, h, x_out)
+        representation = representation.transpose(1, 2)
+        representation = self.conv_net(representation)
+        representation = representation.transpose(1, 2)  # (B, gridsize, R2)
+        
+        mean = self.output_interpolation_mean(grid, representation, target_in)
+        sigma = self.output_interpolation_sigma(grid, representation, target_in)
 
         return torch.cat((mean, sigma), -1)
 
@@ -604,32 +423,47 @@ class ConvCNP(nn.Module):
         return np.sum([torch.tensor(param.shape).prod()
                        for param in self.parameters()])
 
-    def sample(self, target_x, num_samples, gp_lambda=0.2):
+    def sample(self, target_in, num_samples, gp_lambda=0.2):
+        """
+        Sample from the Convolutional Conditional Neural Process.
 
-        # x_min = target_x.min().item() - 0.1
-        # x_max = target_x.max().item() + 0.1
-        # num_points = int(to_multiple(self.points_per_unit * (x_max - x_min),
-        #                              self.multiplier))
-        # x_grid = torch.linspace(x_min, x_max, num_points).to(target_x.device)
-        # x_grid = x_grid[None, :, None].repeat(target_x.shape[0], 1, 1)
+        Args:
+            target_in (torch.tensor): Shape (B, M, 1).
+            num_samples (int): Draw this many samples.
+            gp_lambda (float): GP covariance will be squeezed by this factor.
+                If None, will use the stored attribute.
 
-        # x_grid = make_grid(target_x, self.points_per_unit, 0.1, self.multiplier)
-        x_grid = self.grid
+        Returns:
+            torch.tensor: Output of 'output_interpolation'.
 
-        samples = self.l0.sample(x_grid, num_samples, gp_lambda=gp_lambda)  # (num_samples, B, M, l0.out_channels)
+        """
+
+        if not hasattr(self.input_interpolation, "sample"):
+            raise NotImplementedError("This ConvCNP doesn't use a GP \
+                interpolator and can't be sampled from.")
+
+        grid = self.grid  # (B, G, 1)
+
+        samples = self.input_interpolation.sample(grid,
+                                                  num_samples,
+                                                  gp_lambda=gp_lambda)
         samples = self.activation(samples)
-        num_samples, B, M, C = samples.shape
-        samples = samples.view(num_samples*B, M, C)
-        samples = samples.permute(0, 2, 1)
+        samples = stack_batch(samples)  # (num_samples*B, G, R1)
+
+        samples = samples.transpose(1, 2)
         samples = self.conv_net(samples)
-        samples = samples.reshape(samples.shape[0], samples.shape[1], -1).permute(0, 2, 1)  # (num_samples, B, conv_net.out_channels)
-        samples = samples.contiguous()
+        samples = samples.transpose(1, 2)  # (num_samples*B, G, R2)
 
-        means = self.mean_layer(x_grid.repeat(num_samples, 1, 1), samples, target_x.repeat(num_samples, 1, 1))
-        means = means.view(num_samples, B, *means.shape[1:])
+        
+        means = self.output_interpolation_mean(grid.repeat(num_samples, 1, 1),
+                                               samples,
+                                               target_in.repeat(num_samples, 1, 1))
+        means = unstack_batch(means, num_samples)
 
-        sigmas = self.sigma_layer(x_grid.repeat(num_samples, 1, 1), samples, target_x.repeat(num_samples, 1, 1))
-        sigmas = sigmas.view(num_samples, B, *sigmas.shape[1:])
+        sigmas = self.output_interpolation_sigma(grid.repeat(num_samples, 1, 1),
+                                                 samples,
+                                                 target_in.repeat(num_samples, 1, 1))
+        sigmas = unstack_batch(sigmas, num_samples)
 
         return torch.cat((means, sigmas), -1)
 
