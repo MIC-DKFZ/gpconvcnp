@@ -53,22 +53,13 @@ class StepFunctionGenerator(FunctionGenerator):
         else:
             number_of_steps = self.number_of_steps
 
-        # functions in batch will step in same place to make batch generation faster
-        num_tries = 0
-        while num_tries <= 1000000:  # just so the process doesn't run forever if something's off
-            step_indices = np.random.randint(0, x.shape[1], number_of_steps)
-            step_indices.sort()
-            step_x = x[0, :, 0][step_indices]
-            step_width = np.abs(step_x[1:] - step_x[:-1])
-            if np.any(step_width < self.min_step_width):
-                num_tries += 1
-                continue
-            else:
-                break
-        else:
-            raise RuntimeError("Tried to generate step function with {} steps \
-                and minimum step width of {:.3f}, but failed 1000000 times."\
-                .format(number_of_steps, self.min_step_width))
+        step_indices = np.random.randint(0, x.shape[1], number_of_steps)
+        step_indices.sort()
+        step_x = x[0, :, 0][step_indices]
+        step_width = np.abs(step_x[1:] - step_x[:-1])
+        if np.any(step_width < self.min_step_width):
+            raise RuntimeError("Couln't generate step function with wide enough steps.")
+    
 
         y = np.zeros((self.batch_size, *x.shape[1:]), dtype=np.float32)
         new_values = np.random.uniform(*self.y_range, size=(self.batch_size, 1))

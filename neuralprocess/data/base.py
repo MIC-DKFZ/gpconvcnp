@@ -70,16 +70,28 @@ class FunctionGenerator(SlimDataLoaderBase):
         else:
             num_target = self.num_target
 
-        if self.linspace:
-            x = np.linspace(*self.x_range, num_context + num_target)
-            x = x.reshape(1, -1, 1)
-        else:
-            x = np.random.uniform(*self.x_range, size=(1, num_context + num_target, 1))
-            x.sort(1)
-        x = x.astype(np.float32)
+        num_tries = 0
+        while num_tries < 1e6:
+            try:
 
-        # x now has shape (1, num_context + num_target, 1)
-        y = self.apply(x)
+                if self.linspace:
+                    x = np.linspace(*self.x_range, num_context + num_target)
+                    x = x.reshape(1, -1, 1)
+                else:
+                    x = np.random.uniform(*self.x_range, size=(1, num_context + num_target, 1))
+                    x.sort(1)
+                x = x.astype(np.float32)
+
+                # x now has shape (1, num_context + num_target, 1)
+                y = self.apply(x)
+
+                break
+
+            except Exception as e:
+                num_tries += 1
+                continue
+        else:
+            raise e
 
         x = np.repeat(x, self.batch_size, 0)
         rand_indices = np.random.choice(np.arange(num_context + num_target),
