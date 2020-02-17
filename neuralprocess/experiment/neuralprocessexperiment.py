@@ -5,7 +5,7 @@ import numpy as np
 import os
 import time
 import plotly.graph_objs as go
-import gpytorch
+import ot
 
 import torch
 from torch import nn, optim, distributions
@@ -67,15 +67,18 @@ def make_defaults(representation_channels=128):
             kernel_kwargs=dict(lengthscale=0.5),
             x_range=[-3, 3],
             num_context=[3, 100],
-            num_target=(3, 100),
+            num_target=[3, 100],
             target_larger_than_context=True,
             target_includes_context=True,
-            output_noise=0.,
-            linspace=False,
-            number_of_threads_in_multithreaded=1
+            target_fixed_size=False,
+            output_noise=0.,  # additive noise on context values
+            linspace=False,  # x values from linspace instead of uniform
+            number_of_threads_in_multithreaded=1  # not used atm
         ),
 
-        # Model
+        # Model:
+        # modules are instantiated first and then passed to the constructor
+        # of the model
         model=NeuralProcess,
         model_kwargs=dict(distribution=distributions.Normal),
         modules=dict(
@@ -84,30 +87,30 @@ def make_defaults(representation_channels=128):
         ),
         modules_kwargs=dict(
             prior_encoder=dict(
-                in_channels=2,
-                out_channels=2*representation_channels,
+                in_channels=2,  # context in + out
+                out_channels=2*representation_channels,  # mean + sigma
                 hidden_channels=128,
                 hidden_layers=6
             ),
             decoder=dict(
-                in_channels=representation_channels+1,
-                out_channels=2,
+                in_channels=representation_channels+1,  # sample + target in
+                out_channels=2,  # mean + sigma
                 hidden_channels=128,
                 hidden_layers=6
             )
         ),
-        output_transform_logvar=True,
+        output_transform_logvar=True,  # logvar to sigma transform on sigma outputs
 
         # Optimization
         optimizer=optim.Adam,
         optimizer_kwargs=dict(lr=1e-3),
-        lr_min=1e-6,
+        lr_min=1e-6,  # training stops when LR falls below this
         scheduler=optim.lr_scheduler.StepLR,
         scheduler_kwargs=dict(step_size=1000, gamma=0.995),
         scheduler_step_train=True,
-        clip_loss=1e3,
-        clip_grad=1e3,
-        lr_warmup=0,
+        clip_loss=1e3,  # loss is clamped from above to this value
+        clip_grad=1e3,  # argument for nn.clip_grad_norm
+        lr_warmup=0,  # linearly increase LR from 0 during first lr_warmup epochs
 
         # Logging
         backup_every=1000,
@@ -121,17 +124,15 @@ def make_defaults(representation_channels=128):
         test_batches_distribution=30,
         test_batches_diversity=100,
         test_batch_size=1024,
-        # test_num_context=[5, 10, 15, 20],
-        test_num_context=["random", ],
+        test_num_context=["random", ],  # can also have integers in this list
         test_num_context_random=[5, 50],
         test_num_target_single=100,
-        test_num_target_distribution=50,
-        test_num_target_diversity=50,
-        test_latent_samples=100,
+        test_num_target_distribution=100,
+        test_num_target_diversity=100,
+        test_latent_samples=100,  # use this many latent samples for NP and ANP
         test_single=True,
         test_distribution=True,
-        test_diversity=True,
-        test_mmd_alphas=[0.05, 0.1, 0.5, 1., 5.]
+        test_diversity=True
 
     )
 
@@ -140,7 +141,7 @@ def make_defaults(representation_channels=128):
         model_kwargs=dict(
             project_to=128,  # embed_dim in attention mechanism
             project_bias=True,
-            in_channels=1,
+            in_channels=1,  # context and target in
             representation_channels=representation_channels,
         ),
         modules=dict(
@@ -162,8 +163,8 @@ def make_defaults(representation_channels=128):
             init_length_scale=0.1,
             use_density=True,
             use_density_norm=True,
-            points_per_unit=20,
-            range_padding=0.1,
+            points_per_unit=20,  # grid resolution
+            range_padding=0.1,  # grid range extension
             grid_divisible_by=64,
         ),
         modules=dict(
@@ -174,7 +175,7 @@ def make_defaults(representation_channels=128):
                 in_channels=8,
                 out_channels=8,
                 num_blocks=6,
-                input_bypass=True
+                input_bypass=True  # input concatenated to output
             )
         )
     )
@@ -292,6 +293,7 @@ class NeuralProcessExperiment(PytorchExperiment):
 
     def prepare(self):
 
+        # move everything to specified device
         for name, model in self.get_pytorch_modules().items():
             model.to(self.config.device)
 
@@ -308,6 +310,7 @@ class NeuralProcessExperiment(PytorchExperiment):
         target_in = batch["target_in"].to(self.config.device)
         target_out = batch["target_out"].to(self.config.device)
 
+        # forward
         prediction = self.model(context_in,
                                 context_out,
                                 target_in,
@@ -322,6 +325,7 @@ class NeuralProcessExperiment(PytorchExperiment):
         batch["prediction_mu"] = prediction.loc.detach().cpu()
         batch["prediction_sigma"] = prediction.scale.detach().cpu()
 
+        # loss
         loss_recon = -prediction.log_prob(target_out)
         loss_recon = loss_recon.mean(0).sum()  # batch mean
         if self.config.clip_loss > 0:
@@ -333,17 +337,18 @@ class NeuralProcessExperiment(PytorchExperiment):
             loss_latent = loss_latent.mean(0).sum()  # batch mean
             loss_total += loss_latent
 
+        # backward
         loss_total.backward()
         if self.config.clip_grad > 0:
             nn.utils.clip_grad_norm_(self.model.parameters(),
                                      self.config.clip_grad)
         self.optimizer.step()
 
-        batch["loss_recon"] = loss_recon.item()  # logging
+        # logging and LR updates
+        batch["loss_recon"] = loss_recon.item()
         if hasattr(self.model, "prior"):
             batch["loss_latent"] = loss_latent.item()
             batch["loss_total"] = loss_total.item()
-
         self.log(batch, validate=False)
         self.step_params(loss_total.item(), epoch, val=False)
 
@@ -356,6 +361,7 @@ class NeuralProcessExperiment(PytorchExperiment):
             backup = (summary["epoch"] + 1) % self.config.backup_every == 0
             show = (summary["epoch"] + 1) % self.config.show_every == 0
 
+        # add_result logs to self.results and also plots
         for l in ("loss_recon", "loss_latent", "loss_total"):
             if l in summary:
                 name = l
@@ -506,6 +512,7 @@ class NeuralProcessExperiment(PytorchExperiment):
 
         self.log(batch, "val")
 
+        # create plot with different samples
         try:
             summary = self.make_samples()
             summary["epoch"] = epoch
@@ -518,6 +525,8 @@ class NeuralProcessExperiment(PytorchExperiment):
         except Exception as e:
             raise e
 
+        # default configuration doesn't do anything here, but when
+        # we use something like ReduceLROnPlateau, we need this call
         self.step_params(loss_total.item(), epoch, val=True)
 
     def make_samples(self):
@@ -596,9 +605,10 @@ class NeuralProcessExperiment(PytorchExperiment):
 
     def test_single(self):
 
-        # for the evaluation we want to separate target and context entirely
-        target_include_context = self.config.target_include_context
-        self.config.target_include_context = False
+        # for this evaluation we want to separate target and context entirely
+        self.generator.target_include_context = False
+        self.generator.batch_size = self.config.test_batch_size
+        self.generator.num_target = self.config.test_num_target_single
         self.model.eval()
 
         info = {}
@@ -608,15 +618,8 @@ class NeuralProcessExperiment(PytorchExperiment):
             "metric": [
                 "predictive_likelihood",
                 "predictive_error_squared",
-                "predictive_likelihood_sample",
-                "predictive_error_squared_sample",
                 "reconstruction_likelihood",
-                "reconstruction_error_squared",
-                "reconstruction_likelihood_sample",
-                "reconstruction_error_squared_sample",
-                "kl",
-                "kernel_weighted_difference",
-                "likelihood_under_gp_prior"
+                "reconstruction_error_squared"
             ]
         }
 
@@ -624,156 +627,131 @@ class NeuralProcessExperiment(PytorchExperiment):
 
         for b in range(self.config.test_batches_single):
 
-            print("Single test batch", b)
-            t0 = time.time()
-
             scores_batch = []
 
             for num_context in self.config.test_num_context:
                 with torch.no_grad():
 
                     if num_context == "random":
-                        num_context = np.random.randint(*self.config.test_num_context_random)
-
-                    context_in, context_out, target_in, target_out = self.make_batch(self.config.test_batch_size,
-                                                                                self.config.test_x_range,
-                                                                                num_context,
-                                                                                self.config.test_num_target_single,
-                                                                                linspace=True)
-
-                    if hasattr(self.model, "encode_posterior"):
-                        self.model.encode_posterior(context_in, context_out, target_in, target_out)
-                    prediction = self.model(context_in, context_out, target_in, store_rep=True)
-
-                    # sample predictive performance for GPConvCNP
-                    if isinstance(self.model, convcnp.ConvCNP):
-                        # if isinstance(self.model.l0, convcnp.GPConvDeepSet):
-                        #     sample = self.model.sample(target_in, 1)
-                        #     predictive_likelihood_sample = self.model.distribution(*sample).log_prob(target_out.unsqueeze(0))[0].cpu().numpy()
-                        #     predictive_likelihood_sample = np.nanmean(predictive_likelihood_sample,
-                        #                                               axis=tuple(range(1, predictive_likelihood_sample.ndim)))
-                        #     predictive_error_squared_sample = (target_out.cpu().numpy() - sample[0][0].cpu().numpy())**2
-                        #     predictive_error_squared_sample = np.nanmean(predictive_error_squared_sample,
-                        #                                                 axis=tuple(range(1, predictive_error_squared_sample.ndim)))
-                        # else:
-                        #     predictive_likelihood_sample = np.zeros((context_in.shape[0], )) * np.nan
-                        #     predictive_error_squared_sample = np.zeros((context_in.shape[0], )) * np.nan
-                        predictive_likelihood_sample = np.zeros((context_in.shape[0], )) * np.nan
-                        predictive_error_squared_sample = np.zeros((context_in.shape[0], )) * np.nan
-
-                    # calculate the predictive likelihood now
-                    # for models with a latent space we will overwrite this later
-                    if not self.config.loc_scale_prediction:
-                        prediction = (prediction, torch.ones_like(prediction) * np.sqrt(0.5))
-                    predictive_likelihood = np.nanmean(self.model.distribution(*prediction).log_prob(target_out).cpu().numpy(),
-                                                        axis=tuple(range(1, target_out.ndim)))
-                    prediction = prediction[0]
-                    prediction = prediction.cpu().numpy()
-                    predictive_error_squared = (target_out.cpu().numpy() - prediction)**2
-                    predictive_error_squared = np.nanmean(predictive_error_squared, axis=tuple(range(1, predictive_error_squared.ndim)))
-
-                    if hasattr(self.model, "posterior"):
-                        kl = distributions.kl_divergence(self.model.posterior, self.model.prior).cpu().numpy()
-                        while kl.ndim > 1:
-                            kl = kl.sum(-1)
+                        self.generator.num_context = self.config.test_num_context_random
                     else:
-                        kl = np.zeros_like(predictive_error_squared) * np.nan
+                        self.generator.num_context = int(num_context)
 
-                    self.process.fit(target_in[0].cpu().numpy(), None)
-                    likelihood_under_gp_prior = []
-                    for i in range(prediction.shape[0]):
-                        likelihood_under_gp_prior.append(self.process.log_likelihood(prediction[i]))
-                    likelihood_under_gp_prior = np.array(likelihood_under_gp_prior)
+                    batch = next(self.generator)
+                    context_in = batch["context_in"].to(self.config.device)
+                    context_out = batch["context_out"].to(self.config.device)
+                    target_in = batch["target_in"].to(self.config.device)
+                    target_out = batch["target_out"].to(self.config.device)
 
-                    kwd = kernel_weighted_difference(prediction[:, :, 0], self.process.K, norm=2)
-
-                    # now draw multiple samples for likelihoods if we can
                     if hasattr(self.model, "prior") and self.model.prior is not None:
                         predictive_likelihood = []
                         while len(predictive_likelihood) < self.config.test_latent_samples:
                             sample = self.model.prior.sample()
-                            prediction = self.model.reconstruct(target_in, sample)
+                            prediction = self.model.reconstruct(target_x, sample)
                             if not self.config.loc_scale_prediction:
                                 prediction = (prediction, torch.ones_like(prediction) * np.sqrt(0.5))
-                            predictive_likelihood.append(torch.mean(self.model.distribution(*prediction).log_prob(target_out), (1, 2)))
-                            predictive_error_squared_sample = (target_out.cpu().numpy() - prediction[0].cpu().numpy())**2  # automatically keeps the last one
+                            predictive_likelihood.append(torch.mean(self.model.distribution(*prediction).log_prob(target_y), (1, 2)))
+                            predictive_error_squared_sample = (target_y.cpu().numpy() - prediction[0].cpu().numpy())**2  # automatically keeps the last one
                             predictive_error_squared_sample = np.nanmean(predictive_error_squared_sample,
                                                                          axis=tuple(range(1, predictive_error_squared_sample.ndim)))
                         predictive_likelihood_sample = predictive_likelihood[-1].cpu().numpy()
                         predictive_likelihood = torch.stack(predictive_likelihood).mean(0).cpu().numpy()
-                        
-                    # on to the reconstruction performance
-                    prediction = self.model(context_in, context_out, context_in, store_rep=True)
 
-                    # sample reconstruction performance for GPConvCNP
-                    if isinstance(self.model, convcnp.ConvCNP):
-                        # if isinstance(self.model.l0, convcnp.GPConvDeepSet):
-                        #     sample = self.model.sample(context_in, 1)
-                        #     reconstruction_likelihood_sample = self.model.distribution(*sample).log_prob(context_out.unsqueeze(0))[0].cpu().numpy()
-                        #     reconstruction_likelihood_sample = np.nanmean(reconstruction_likelihood_sample,
-                        #                                                 axis=tuple(range(1, reconstruction_likelihood_sample.ndim)))
-                        #     reconstruction_error_squared_sample = (context_out.cpu().numpy() - sample[0][0].cpu().numpy())**2
-                        #     reconstruction_error_squared_sample = np.nanmean(reconstruction_error_squared_sample,
-                        #                                                     axis=tuple(range(1, reconstruction_error_squared_sample.ndim)))
-                        # else:
-                        #     reconstruction_likelihood_sample = np.zeros((context_in.shape[0], )) * np.nan
-                        #     reconstruction_error_squared_sample = np.zeros((context_in.shape[0], )) * np.nan
-                        reconstruction_likelihood_sample = np.zeros((context_in.shape[0], )) * np.nan
-                        reconstruction_error_squared_sample = np.zeros((context_in.shape[0], )) * np.nan
+                    # PREDICTIVE PERFORMANCE
+                    prediction = self.model(context_in,
+                                            context_out,
+                                            target_in,
+                                            target_out,
+                                            store_rep=True)
+                    prediction = tensor_to_loc_scale(
+                        prediction,
+                        distributions.Normal,
+                        logvar_transform=self.config.output_transform_logvar,
+                        axis=2
+                    )
+                    predictive_error = torch.pow(prediction.loc - target_out, 2)
+                    predictive_error = predictive_error.cpu().numpy()
+                    predictive_error = np.nanmean(predictive_error, axis=(1, 2))
+                    if isinstance(self.model, (NeuralProcess, AttentiveNeuralProcess)):
+                        predictive_ll = []
+                        while len(predictive_ll) < self.config.test_latent_samples:
+                            prediction = self.model.sample(target_in, n=1)[0]
+                            prediction = tensor_to_loc_scale(
+                                prediction,
+                                distributions.Normal,
+                                logvar_transform=self.config.output_transform_logvar,
+                                axis=2
+                            )
+                            ll = prediction.log_prob(target_out.cpu()).numpy()
+                            ll = np.nanmean(ll, axis=(1, 2))
+                            predictive_ll.append(ll)
+                        predictive_ll = np.nanmean(predictive_ll, axis=0)
+                    else:
+                        predictive_ll = prediction.log_prob(target_out)
+                        predictive_ll = predictive_ll.cpu().numpy()
+                        predictive_ll = np.nanmean(predictive_ll, axis=(1, 2))
 
-                    if not self.config.loc_scale_prediction:
-                        prediction = (prediction, torch.ones_like(prediction) * np.sqrt(0.5))
-                    reconstruction_likelihood = np.nanmean(self.model.distribution(*prediction).log_prob(context_out).cpu().numpy(),
-                                                           axis=tuple(range(1, target_out.ndim)))
-                    prediction = prediction[0]
-                    reconstruction_error_squared = (context_out.cpu().numpy() - prediction.cpu().numpy())**2
-                    reconstruction_error_squared = np.nanmean(reconstruction_error_squared, axis=tuple(range(1, reconstruction_error_squared.ndim)))
+                    # RECONSTRUCTION PERFORMANCE
+                    reconstruction = self.model(context_in,
+                                                context_out,
+                                                context_in,
+                                                context_out,
+                                                store_rep=False)
+                    reconstruction = tensor_to_loc_scale(
+                        reconstruction,
+                        distributions.Normal,
+                        logvar_transform=self.config.output_transform_logvar,
+                        axis=2
+                    )
+                    reconstruction_error = torch.pow(reconstruction.loc - context_out, 2)
+                    reconstruction_error = reconstruction_error.cpu().numpy()
+                    reconstruction_error = np.nanmean(reconstruction_error, axis=(1, 2))
+                    if isinstance(self.model, (NeuralProcess, AttentiveNeuralProcess)):
+                        reconstruction_ll = []
+                        while len(reconstruction_ll) < self.config.test_latent_samples:
+                            reconstruction = self.model.sample(context_in, n=1)[0]
+                            reconstruction = tensor_to_loc_scale(
+                                reconstruction,
+                                distributions.Normal,
+                                logvar_transform=self.config.output_transform_logvar,
+                                axis=2
+                            )
+                            ll = reconstruction.log_prob(target_out.cpu()).numpy()
+                            ll = np.nanmean(ll, axis=(1, 2))
+                            reconstruction_ll.append(ll)
+                        reconstruction_ll = np.nanmean(reconstruction_ll, axis=0)
+                    else:
+                        reconstruction_ll = reconstruction.log_prob(context_out)
+                        reconstruction_ll = reconstruction_ll.cpu().numpy()
+                        reconstruction_ll = np.nanmean(reconstruction_ll, axis=(1, 2))
 
-                    # again overwrite likelihood for models with a latent space
-                    if hasattr(self.model, "prior") and self.model.prior is not None:
-                        reconstruction_likelihood = []
-                        while len(reconstruction_likelihood) < self.config.test_latent_samples:
-                            sample = self.model.prior.sample()
-                            prediction = self.model.reconstruct(context_in, sample)
-                            if not self.config.loc_scale_prediction:
-                                prediction = (prediction, torch.ones_like(prediction) * np.sqrt(0.5))
-                            reconstruction_likelihood.append(torch.mean(self.model.distribution(*prediction).log_prob(context_out), (1, 2)))
-                            reconstruction_error_squared_sample = (context_out.cpu().numpy() - prediction[0].cpu().numpy())**2  # automatically keeps the last one
-                            reconstruction_error_squared_sample = np.nanmean(reconstruction_error_squared_sample,
-                                                                             axis=tuple(range(1, reconstruction_error_squared_sample.ndim)))
-                        reconstruction_likelihood_sample = reconstruction_likelihood[-1].cpu().numpy()
-                        reconstruction_likelihood = torch.stack(reconstruction_likelihood).mean(0).cpu().numpy()
-
-                    score = np.stack([predictive_likelihood,
-                                      predictive_error_squared,
-                                      predictive_likelihood_sample,
-                                      predictive_error_squared_sample,
-                                      reconstruction_likelihood,
-                                      reconstruction_error_squared,
-                                      reconstruction_likelihood_sample,
-                                      reconstruction_error_squared_sample,
-                                      kl,
-                                      kwd,
-                                      likelihood_under_gp_prior], axis=1)[:, None, :]
+                    score = np.stack([predictive_ll,
+                                      predictive_error,
+                                      reconstruction_ll,
+                                      reconstruction_error], axis=1)[:, None, :]
                     scores_batch.append(score)
 
             scores_batch = np.concatenate(scores_batch, 1)
             scores.append(scores_batch)
 
-            print(time.time() - t0)
-
         scores = np.concatenate(scores, 0)
         self.elog.save_numpy_data(scores, "test_single.npy")
         self.elog.save_dict(info, "test_single.json")
 
-        self.config.target_include_context = target_include_context
-
     def test_distribution(self):
-        import ot
 
-        # for the evaluation we want to always have the same x, so we need to include the context
-        target_include_context = self.config.target_include_context
-        self.config.target_include_context = True
+        # For this evaluation we want to always have the same target x values,
+        # so we need to include the context and use linspace=True.
+        # Wasserstein calculation is pretty expensive, so
+        # we use fewer samples than in test_single. Samples in a batch
+        # have the same x values for the context, which is fine for large
+        # numbers of test cases, but here we reduce correlation by working
+        # with batch_size=1
+        self.generator.target_include_context = True
+        self.generator.target_fixed_size = True
+        self.generator.linspace = True
+        self.generator.num_target = self.config.test_num_target_distribution
+        self.generator.batch_size = 1
         self.model.eval()
 
         info = {}
@@ -781,142 +759,68 @@ class NeuralProcessExperiment(PytorchExperiment):
         info["coords"] = {
             "test_num_context": self.config.test_num_context,
             "metric": [
-                "mmd",
-                "mmd_sample",
                 "wasserstein",
-                "wasserstein_sample"
             ]
         }
 
         scores = []
 
+        # test batches are now the inner loop, because the metrics are
+        # calculated over all instances
         for num_context in self.config.test_num_context:
 
-            print(num_context)
-
-            gp_samples = []
+            gt_samples = []
             predictions = []
-            samples = []
 
             if num_context == "random":
-
-                with torch.no_grad():
-                    for b in range(self.config.test_batches_distribution*self.config.test_batch_size):
-
-                        nc = np.random.randint(*self.config.test_num_context_random)
-
-                        context_in, context_out, target_in, target_out = self.make_batch(1,
-                                                                                    self.config.test_x_range,
-                                                                                    nc,
-                                                                                    self.config.test_num_target_distribution - nc,
-                                                                                    linspace=True)
-
-                        prediction = self.model(context_in, context_out, target_in, store_rep=True)
-                        if self.config.loc_scale_prediction:
-                            prediction = prediction[0]
-
-                        if isinstance(self.model, convcnp.ConvCNP):
-                            # if isinstance(self.model.l0, convcnp.GPConvDeepSet):
-                            #     sample = self.model.sample(target_in, 1)[0][0]
-                            # else:
-                            #     sample = None
-                            sample = None
-                        elif hasattr(self.model, "prior") and self.model.prior is not None:
-                            sample = self.model.prior.sample()
-                            sample = self.model.reconstruct(target_in, sample)
-                            if self.config.loc_scale_prediction:
-                                sample = sample[0]
-                        else:
-                            sample = None
-                        
-                        gp_samples.append(target_out.cpu().numpy()[:, :, 0])
-                        predictions.append(prediction.cpu().numpy()[:, :, 0])
-                        if sample is not None:
-                            samples.append(sample.cpu().numpy()[:, :, 0])
-
+                self.generator.num_context = self.config.test_num_context_random
             else:
+                self.generator.num_context = int(num_context)
 
-                with torch.no_grad():
-                    for b in range(self.config.test_batches_distribution):
+            # fill the gt_samples and predictions lists, so we can calculate
+            # metrics after.
+            with torch.no_grad():
+                for b in range(self.config.test_batches_distribution*self.config.test_batch_size):
 
-                        context_in, context_out, target_in, target_out = self.make_batch(self.config.test_batch_size,
-                                                                                    self.config.test_x_range,
-                                                                                    num_context,
-                                                                                    self.config.test_num_target_distribution - num_context,
-                                                                                    linspace=True)
+                    batch = next(self.generator)
+                    context_in = batch["context_in"].to(self.config.device)
+                    context_out = batch["context_out"].to(self.config.device)
+                    target_in = batch["target_in"].to(self.config.device)
+                    target_out = batch["target_out"].to(self.config.device)
 
-                        prediction = self.model(context_in, context_out, target_in, store_rep=True)
-                        if self.config.loc_scale_prediction:
-                            prediction = prediction[0]
+                    prediction = self.model(context_in,
+                                            context_out,
+                                            target_in,
+                                            target_out,
+                                            store_rep=False)
+                    prediction = tensor_to_loc_scale(
+                        prediction,
+                        distributions.Normal,
+                        logvar_transform=self.config.output_transform_logvar,
+                        axis=2
+                    ).loc
 
-                        if isinstance(self.model, convcnp.ConvCNP):
-                            # if isinstance(self.model.l0, convcnp.GPConvDeepSet):
-                            #     sample = self.model.sample(target_in, 1)[0][0]
-                            # else:
-                            #     sample = None
-                            sample = None
-                        elif hasattr(self.model, "prior") and self.model.prior is not None:
-                            sample = self.model.prior.sample()
-                            sample = self.model.reconstruct(target_in, sample)
-                            if self.config.loc_scale_prediction:
-                                sample = sample[0]
-                        else:
-                            sample = None
-                        
-                        gp_samples.append(target_out.cpu().numpy()[:, :, 0])
-                        predictions.append(prediction.cpu().numpy()[:, :, 0])
-                        if sample is not None:
-                            samples.append(sample.cpu().numpy()[:, :, 0])
+                    gt_samples.append(target_out.cpu().numpy()[:, :, 0])
+                    predictions.append(prediction.cpu().numpy()[:, :, 0])
 
-            gp_samples = np.concatenate(gp_samples, 0)
+            gt_samples = np.concatenate(gt_samples, 0)
             predictions = np.concatenate(predictions, 0)
-            if len(samples) > 0:
-                samples = np.concatenate(samples, 0)
-            else:
-                samples = None
-
-            t0 = time.time()
 
             # we should now have arrays of shape (N*B, test_num_target_distribution)
-            sqdist = ot.dist(gp_samples, predictions, "euclidean")
-            wdist, log = ot.emd2(np.ones((sqdist.shape[0], )) / sqdist.shape[0],
-                                    np.ones((sqdist.shape[1], )) / sqdist.shape[1],
-                                    sqdist,
-                                    numItermax=1e7,
-                                    log=True,
-                                    return_matrix=True)
+            sqdist = ot.dist(gt_samples, predictions, "euclidean")
+            wdist, _ = ot.emd2(np.ones((sqdist.shape[0], )) / sqdist.shape[0],
+                               np.ones((sqdist.shape[1], )) / sqdist.shape[1],
+                               sqdist,
+                               numItermax=1e7,
+                               log=True,
+                               return_matrix=True)
             wdist = np.sqrt(wdist)
 
-            if samples is not None:
-                sqdist = ot.dist(gp_samples, predictions, "euclidean")
-                wdist_sample, log = ot.emd2(np.ones((sqdist.shape[0], )) / sqdist.shape[0],
-                                        np.ones((sqdist.shape[1], )) / sqdist.shape[1],
-                                        sqdist,
-                                        numItermax=1e7,
-                                        log=True,
-                                        return_matrix=True)
-                wdist_sample = np.sqrt(wdist_sample)
-            else:
-                wdist_sample = np.nan
-
-            print("Wasserstein", time.time() - t0)
-            t0 = time.time()
-
-            mmd = mmd_squared(gp_samples, predictions, self.config.test_mmd_alphas, unbiased=True, sqdist12=sqdist, block_size=25*1024)
-            if samples is not None:
-                mmd_sample = mmd_squared(gp_samples, samples, self.config.test_mmd_alphas, unbiased=True, sqdist12=sqdist, block_size=25*1024)
-            else:
-                mmd_sample = np.nan
-
-            scores.append(np.array([mmd, mmd_sample, wdist, wdist_sample]))
-
-            print("MMD", time.time() - t0)
+            scores.append(np.array([wdist,]))
 
         scores = np.stack(scores)
         self.elog.save_numpy_data(scores, "test_distribution.npy")
         self.elog.save_dict(info, "test_distribution.json")
-
-        self.config.target_include_context = target_include_context
 
     def test_diversity(self):
         import ot

@@ -21,6 +21,10 @@ class FunctionGenerator(SlimDataLoaderBase):
             num_target is drawn randomly.
         target_includes_context (bool): Will include the context set in
             the target set.
+        target_fixed_size (bool): Ensures a fixed target size. Use this
+            when you want to use a random number of context points, but
+            the context should be included in the target set and the
+            taret set needs to be of fixed size.
         output_noise (float): Additive noise for the y values in the
             context set.
         linspace (bool): Use linspace instead of random uniform draws
@@ -38,6 +42,7 @@ class FunctionGenerator(SlimDataLoaderBase):
                  num_target=(3, 100),
                  target_larger_than_context=True,
                  target_includes_context=True,
+                 target_fixed_size=False,
                  output_noise=0.,
                  linspace=False,
                  number_of_threads_in_multithreaded=1,
@@ -50,6 +55,7 @@ class FunctionGenerator(SlimDataLoaderBase):
         self.num_target = num_target
         self.target_larger_than_context = target_larger_than_context
         self.target_includes_context = target_includes_context
+        self.target_fixed_size = target_fixed_size
         self.output_noise = output_noise
         self.linspace = linspace
 
@@ -69,6 +75,9 @@ class FunctionGenerator(SlimDataLoaderBase):
                     max(num_context, self.num_target[0]), self.num_target[1])
         else:
             num_target = self.num_target
+
+        if self.target_includes_context and self.target_fixed_size:
+            num_target -= num_context
 
         num_tries = 0
         while num_tries < 1e6:

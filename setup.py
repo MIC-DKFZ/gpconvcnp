@@ -10,7 +10,8 @@ def resolve_requirements(file):
         req = f.read().splitlines()
         for r in req:
             if r.startswith("-r"):
-                requirements += resolve_requirements(os.path.join(os.path.dirname(file), r.split(" ")[1]))
+                requirements += resolve_requirements(
+                    os.path.join(os.path.dirname(file), r.split(" ")[1]))
             else:
                 requirements.append(r)
     return requirements
@@ -30,9 +31,14 @@ def find_version(file):
     raise RuntimeError("Unable to find version string.")
 
 
-required = resolve_requirements(os.path.join(os.path.dirname(__file__), 'requirements.txt'))
-readme = read_file(os.path.join(os.path.dirname(__file__), "README.md"))
-version = find_version(os.path.join(os.path.dirname(__file__), "neuralprocess", "__init__.py"))
+required = resolve_requirements(
+    os.path.join(os.path.dirname(__file__), 'requirements.txt'))
+required_experiment = resolve_requirements(
+    os.path.join(os.path.dirname(__file__), 'requirements_experiment.txt'))
+readme = read_file(
+    os.path.join(os.path.dirname(__file__), "README.md"))
+version = find_version(
+    os.path.join(os.path.dirname(__file__), "neuralprocess", "__init__.py"))
 
 
 setup(name='neuralprocess',
@@ -46,5 +52,8 @@ setup(name='neuralprocess',
       packages=find_packages(),
       install_requires=required,
       zip_safe=True,
-      include_package_data=True
+      include_package_data=True,
+      extras_require={
+          "experiment": required_experiment
+      }
       )
