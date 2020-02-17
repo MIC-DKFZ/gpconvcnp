@@ -823,11 +823,17 @@ class NeuralProcessExperiment(PytorchExperiment):
         self.elog.save_dict(info, "test_distribution.json")
 
     def test_diversity(self):
-        import ot
+
+        # Can't sample from regular ConvCNP
+        if isinstance(self.model, ConvCNP) and not self.model.use_gp:
+            return
+        # Can't construct oracle for non-GP generators
+        if not isinstance(self.generator, GaussianProcessGenerator):
+            return
         
-        # for the evaluation we want to separate target and context entirely
-        target_include_context = self.config.target_include_context
-        self.config.target_include_context = False
+        self.generator.target_include_context = False
+        self.generator.num_target = self.config.test_num_target_diversity
+        self.generator.batch_size = self.config.test_batch_size
         self.model.eval()
 
         info = {}
@@ -843,85 +849,97 @@ class NeuralProcessExperiment(PytorchExperiment):
 
         for b in range(self.config.test_batches_diversity):
 
-            print("Diversity test batch", b)
-            t0 = time.time()
-
             scores_batch = []
 
             for num_context in self.config.test_num_context:
                 with torch.no_grad():
 
+                    if num_context == "random":
+                        self.generator.num_context = self.config.test_num_context_random
+                    else:
+                        self.generator.num_context = int(num_context)
+
+                    # GP can occasionally because of numerical instability,
+                    # so we need a small loop that accounts for this
                     num_failures = 0
-                    while num_failures < 100:
+                    while num_failures < 1000:
 
-                        if num_context == "random":
-                            num_context = np.random.randint(*self.config.test_num_context_random)
+                        batch = next(self.generator)
+                        context_in = batch["context_in"].to(self.config.device)
+                        context_out = batch["context_out"].to(self.config.device)
+                        target_in = batch["target_in"].to(self.config.device)
+                        target_out = batch["target_out"].to(self.config.device)
 
-                        context_in, context_out, target_in, target_out = self.make_batch(self.config.test_batch_size,
-                                                                                    self.config.test_x_range,
-                                                                                    num_context,
-                                                                                    self.config.test_num_target_diversity,
-                                                                                    linspace=True)
-
-                        prediction = self.model(context_in, context_out, target_in, store_rep=True)  # (B, N, 1)
+                        prediction = self.model(context_in,
+                                                context_out,
+                                                target_in,
+                                                target_out,
+                                                store_rep=True)
 
                         try:
 
                             samples = []
                             while len(samples) < self.config.test_latent_samples:
-                                if isinstance(self.model, convcnp.ConvCNP):
-                                    if isinstance(self.model.l0, convcnp.GPConvDeepSet):
-                                        sample = self.model.sample(target_in, 1)[0][0].cpu()
-                                    else:
-                                        sample = None
-                                elif hasattr(self.model, "prior") and self.model.prior is not None:
-                                    sample = self.model.prior.sample()
-                                    sample = self.model.reconstruct(target_in, sample)
-                                    if self.config.loc_scale_prediction:
-                                        sample = sample[0]
-                                    sample = sample.cpu()
-                                else:
-                                    sample = None
-                                samples.append(sample)
-                            samples = torch.stack(samples).cpu().numpy()[..., 0].transpose(1, 0, 2)  # (B, num_samples, N)
+                                # we draw samples separately, otherwise GPU
+                                # memory could become an issue
+                                sample = self.model.sample(target_in, 1)[0].cpu()
+                                sample = tensor_to_loc_scale(
+                                    sample,
+                                    distributions.Normal,
+                                    logvar_transform=self.config.output_transform_logvar,
+                                    axis=2
+                                ).loc
+                                samples.append(sample[..., 0].numpy())
+                            samples = np.stack(samples)  # (num_samples, B, M)
 
-                            samples_gp = []
-                            for i in range(samples.shape[0]):
-                                self.process.fit(context_in[i].cpu().numpy(), context_out[i].cpu())
-                                _, _, sample = self.process.predict(target_in[i].cpu().numpy(), return_samples=self.config.test_latent_samples)  # (N, num_samples)
-                                samples_gp.append(sample)
-                            samples_gp = np.stack(samples_gp).transpose(0, 2, 1)  # (B, num_samples, N)
-
-                            wdist_scores = []
-                            for i in range(samples.shape[0]):
-                                sqdist = ot.dist(samples[i], samples_gp[i], "euclidean")
-                                wdist, log = ot.emd2(np.ones((sqdist.shape[0], )) / sqdist.shape[0],
-                                                        np.ones((sqdist.shape[1], )) / sqdist.shape[1],
-                                                        sqdist,
-                                                        numItermax=1e7,
-                                                        log=True,
-                                                        return_matrix=True)
-                                wdist = np.sqrt(wdist)
-                                wdist_scores.append(wdist)
-                            wdist_scores = np.array(wdist_scores).reshape(-1, 1, 1)
-
-                            scores_batch.append(wdist_scores)
+                            # get samples from oracle GP
+                            gt_samples = []
+                            for b in range(context_in.shape[0]):
+                                x_train = context_in[b].cpu().numpy()  # (N, 1)
+                                y_train = context_out[b].cpu().numpy()  # (N, 1)
+                                x = target_in[b].cpu().numpy()  # (M, 1)
+                                K = self.generator.kernel(x_train, x_train)
+                                L = np.linalg.cholesky(K + 1e-6 * np.eye(len(x_train)))
+                                K_s = self.generator.kernel(x_train, x)
+                                L_k = np.linalg.solve(L, K_s)
+                                mu = np.dot(L_k.T, np.linalg.solve(L, y_train)).reshape(-1)
+                                K_ss = self.generator.kernel(x, x)
+                                K_ss -= np.dot(L_k.T, L_k)
+                                L_ss = np.linalg.cholesky(K_ss + 1e-6 * np.eye(len(x)))
+                                samp = np.random.normal(
+                                    size=(L_ss.shape[1], self.config.test_latent_samples))
+                                samp = np.dot(L_ss, samp)
+                                samp = samp + mu.reshape(-1, 1)  # (M, num_samples)
+                                gt_samples.append(samp)
+                            gt_samples = np.stack(gt_samples).transpose(2, 0, 1)
 
                             break
 
-                        except RuntimeError:
+                        except RuntimeError as e:
 
                             num_failures += 1
                             continue
+
+                    wdist_scores = []
+                    for i in range(samples.shape[1]):
+                        sqdist = ot.dist(samples[:, i], gt_samples[:, i], "euclidean")
+                        wdist, log = ot.emd2(np.ones((sqdist.shape[0], )) / sqdist.shape[0],
+                                             np.ones((sqdist.shape[1], )) / sqdist.shape[1],
+                                             sqdist,
+                                             numItermax=1e7,
+                                             log=True,
+                                             return_matrix=True)
+                        wdist = np.sqrt(wdist)
+                        wdist_scores.append(wdist)
+                    wdist_scores = np.array(wdist_scores).reshape(-1, 1, 1)
+                    scores_batch.append(wdist_scores)
 
             scores_batch = np.concatenate(scores_batch, 1)
             scores.append(scores_batch)
 
         scores = np.concatenate(scores, 0)
         self.elog.save_numpy_data(scores, "test_diversity.npy")
-        self.elog.save_dict(info, "test_diversity.json")
-
-        self.config.target_include_context = target_include_context                    
+        self.elog.save_dict(info, "test_diversity.json")                   
 
 
 
