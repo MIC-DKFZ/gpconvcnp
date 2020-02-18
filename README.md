@@ -48,7 +48,7 @@ Beyond that you can modify any value in the configuration directly, including de
 * `-v` will log to Visdom. You need to start a Visdom server beforehand with `python -m visdom.server --port 8080`
 * `-ad` will generate a description for the experiment by looking at the difference to the default configuration. The description will be saved as part of the config in the logging directory you specify.
 
-To give a more illustrative example, let's assume you want to run GP-ConvCNP on step functions with twice the amount of epochs, but with a larger initial learning rate. You also want to run the tests at the end, but for some reason only those for prediction and reconstruction ability. The training should be logged to Visdom and you want an automatic description generated. Your command would look like this:
+To give a more illustrative example, let's assume you want to run GP-ConvCNP on step functions with twice the default amount of epochs, but with a larger initial learning rate. You also want to run the tests at the end, but for some reason only those for prediction and reconstruction ability. The training should be logged to Visdom and you want an automatic description generated. Your command would look like this:
 
     python neuralprocessexperiment.py LOG_DIR -v -ad -m STEP CONVCNP GPCONVCNP LONG --optimizer_kwargs.lr 1e-2 --test --test_distribution false --test_diversity false
 
