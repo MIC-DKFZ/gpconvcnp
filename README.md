@@ -16,7 +16,7 @@ Alternatively you can run
 
     pip install -r requirements_experiment.txt
 
-after the regular installation.
+after the regular installation. You might receive an error that trixi requires a specific version of scikit-learn, which you can safely ignore.
 
 ## Example Notebook
 

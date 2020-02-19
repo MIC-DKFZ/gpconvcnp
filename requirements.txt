@@ -1,5 +1,6 @@
 batchgenerators
 torch>=1.2.0
+gpytorch
 numpy
 matplotlib
 ipywidgets
