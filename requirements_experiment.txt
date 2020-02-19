@@ -1,2 +1,3 @@
 trixi
 POT
+plotly

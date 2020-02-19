@@ -21,10 +21,12 @@ from trixi.util import Config, ResultLogDict
 from trixi.experiment import PytorchExperiment
 
 from neuralprocess.util import (
-    get_default_experiment_parser,
-    run_experiment,
     set_seeds,
     tensor_to_loc_scale
+)
+from neuralprocess.experiment.util import (
+    get_default_experiment_parser,
+    run_experiment,
 )
 from neuralprocess.data import (
     GaussianProcessGenerator,
