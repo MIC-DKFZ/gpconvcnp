@@ -16,6 +16,7 @@ if "CUDNN_DETERMINISTIC" in os.environ:
     if os.environ["CUDNN_DETERMINISTIC"] not in (0, False, "false", "FALSE", "False"):
         cudnn.benchmark = False
         cudnn.deterministic = True
+import gpytorch
 
 from trixi.util import Config, ResultLogDict
 from trixi.experiment import PytorchExperiment
@@ -157,27 +158,68 @@ def make_defaults(representation_channels=128):
         ),
     )
 
+    # CONVCNP = Config(
+    #     model=ConvCNP,
+    #     model_kwargs=dict(
+    #         use_gp=False,
+    #         learn_length_scale=True,
+    #         init_length_scale=0.1,
+    #         use_density=True,
+    #         use_density_norm=True,
+    #         points_per_unit=20,  # grid resolution
+    #         range_padding=0.1,  # grid range extension
+    #         grid_divisible_by=64,
+    #     ),
+    #     modules=dict(
+    #         conv_net=generic.SimpleUNet
+    #     ),
+    #     modules_kwargs=dict(
+    #         conv_net=dict(
+    #             in_channels=8,
+    #             out_channels=8,
+    #             num_blocks=6,
+    #             input_bypass=True  # input concatenated to output
+    #         )
+    #     )
+    # )
+
     CONVCNP = Config(
         model=ConvCNP,
         model_kwargs=dict(
-            use_gp=False,
-            learn_length_scale=True,
-            init_length_scale=0.1,
-            use_density=True,
-            use_density_norm=True,
             points_per_unit=20,  # grid resolution
             range_padding=0.1,  # grid range extension
             grid_divisible_by=64,
         ),
         modules=dict(
-            conv_net=generic.SimpleUNet
+            input_interpolation=ConvDeepSet,
+            conv_net=generic.SimpleUNet,
+            output_interpolation=ConvDeepSet
         ),
         modules_kwargs=dict(
+            input_interpolation=dict(
+                kernel=gpytorch.kernels.RBFKernel,
+                kernel_kwargs=None,
+                init_lengthscale=0.1,
+                in_channels=1,
+                use_density=True,
+                use_density_norm=True,
+                project_to=8,
+                project_bias=True,
+            ),
             conv_net=dict(
                 in_channels=8,
                 out_channels=8,
                 num_blocks=6,
                 input_bypass=True  # input concatenated to output
+            ),
+            output_interpolation=dict(
+                kernel=gpytorch.kernels.RBFKernel,
+                kernel_kwargs=None,
+                init_lengthscale=0.1,
+                in_channels=16,
+                use_density=False,
+                project_to=2,
+                project_bias=True,
             )
         )
     )
