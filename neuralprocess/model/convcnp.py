@@ -601,7 +601,18 @@ class GPConvDeepSet(ConvDeepSet):
                  gp_sample_from_posterior=0,
                  *args, **kwargs):
 
+        # the kernels for signal and density are separate,
+        # so we initialize with use_density=False
+        use_density = kwargs.get("use_density", False)
+        kwargs["use_density"] = False
         super().__init__(*args, **kwargs)
+
+        # if we're using the density channel, we need to set up the
+        # projection again
+        if use_density:
+            self.use_density = True
+            self.in_channels += 1
+            self.setup_projections()
 
         self.gp_lambda = gp_lambda
         self.gp_sample_from_posterior = gp_sample_from_posterior
@@ -623,50 +634,44 @@ class GPConvDeepSet(ConvDeepSet):
         """Interpolate context onto target_in.
 
         Args:
-            context_in (torch.tensor): Context inputs, shape (N, B, Cin).
-            context_out (torch.tensor): Context outputs, shape (N, B, 1).
-            target_in (torch.tensor): New input values, shape (M, B, Cin).
+            context_in (torch.tensor): Context inputs, shape (B, N, Cin).
+            context_out (torch.tensor): Context outputs, shape (B, N, Cout).
+            target_in (torch.tensor): New input values, shape (B, M, Cin).
             store_rep (bool): Store cholesky decomposition of the kernel
                 matrix as well as mean prediction, so we can sample at a
                 later point.
 
         Returns:
             torch.tensor: Output values at new input positions,
-                optionally projected. Shape (M, B, R).
+                optionally projected. Shape (B, M, R).
 
         """
 
-        N, B = context_in.shape[:2]
-        M = target_in.shape[0]
-
-        context_in = context_in.transpose(0, 1)
-        context_out = context_out.transpose(0, 1)
-        target_in = target_in.transpose(0, 1)
+        B, N = context_in.shape[:2]
+        M = target_in.shape[1]
 
         # do GP inference manually, consider replacing with GPyTorch
-        K = self.kernel(context_in, context_in).evaluate()  # (B, N, N)
-        L = gpytorch.utils.cholesky.psd_safe_cholesky(K, jitter=1e-4)  # (B, N, N)
-        K_s = self.kernel(context_in, target_in).evaluate()  # (B, N, M)
+        K = self.kernel(context_in, context_in).evaluate()[0]  # (B, N, N)
+        L = gpytorch.utils.cholesky.psd_safe_cholesky(K, jitter=1e-6)  # (B, N, N)
+        K_s = self.kernel(context_in, target_in).evaluate()[0]  # (B, N, M)
         L_k, _ = torch.solve(K_s, L)  # (B, N, M)
-        output = torch.bmm(L_k.transpose(1, 2), torch.solve(context_out, L)[0])  # (B, M, 1)
+        output = torch.bmm(L_k.transpose(1, 2), torch.solve(context_out, L)[0])  # (B, M, Cout)
 
         if self.gp_sample_from_posterior:
-            K_ss = self.kernel(target_in, target_in).evaluate()  # (B, M, M)
+            K_ss = self.kernel(target_in, target_in).evaluate()[0]  # (B, M, M)
             K_ss -= torch.bmm(L_k.transpose(1, 2), L_k)
             L_ss = gpytorch.utils.cholesky.psd_safe_cholesky(K_ss)
-            samples = torch.randn(output.shape[0],
-                                  L_ss.shape[-1],
-                                  self.gp_sample_from_posterior)
-            samples = samples.to(device=L_ss.device)
-            samples = torch.bmm(L_ss, samples)
-            output = output + self.gp_lambda * samples  # (B, M, num_samples)
-            output = output.mean(-1, keepdims=True)  # (B, M, 1)
+            samples = torch.randn(self.gp_sample_from_posterior, *output.shape)
+            samples = samples.to(device=L_ss.device)  # (num_samples, B, M, Cout)
+            samples = torch.matmul(L_ss.unsqueeze(0), samples)  # (num_samples, B, M, Cout)
+            output = output.unsqueeze(0) + self.gp_lambda * samples  # (num_samples, B, M, Cout)
+            output = output.mean(0)  # (B, M, Cout)
         
         if self.use_density:
             density = K_s.unsqueeze(-1).mean(1)  # (B, M, 1)
             if self.use_density_norm:
-                output /= (density + 1e-8)
-            output = torch.cat((density, output), -1)  
+                output = output / (density + 1e-8)
+            output = torch.cat((density, output), -1)
 
         if store_rep:
             self.representation = L_k
@@ -677,20 +682,20 @@ class GPConvDeepSet(ConvDeepSet):
             output = self.project_out(output)
             output = unstack_batch(output, B)
 
-        return output.transpose(0, 1)
+        return output
 
     def sample(self, target_in, num_samples, gp_lambda=None):
         """Draw GP samples for target_in.
 
         Args:
-            target_in (torch.tensor): New input values, shape (M, B, Cin).
+            target_in (torch.tensor): New input values, shape (B, M, Cin).
             num_samples (int): Draw this many samples.
             gp_lambda (float): GP covariance will be squeezed by this factor.
                 If None, will use the stored attribute.
 
         Returns:
             torch.tensor: Output values at new input positions,
-                optionally projected. Shape (num_samples, M, B, R).
+                optionally projected. Shape (num_samples, B, M, R).
 
         """
 
@@ -698,7 +703,7 @@ class GPConvDeepSet(ConvDeepSet):
             raise ValueError("No stored kernel and prediction, please run \
                 a forward pass with store_rep=True.")
 
-        if target_in.shape[0] != self.representation.shape[-1]:
+        if target_in.shape[1] != self.representation.shape[-1]:
             raise IndexError("target_in shape is {}, representation shape is {}. \
                 First axis of target_x and last axis of representation should match!"\
                 .format(target_in.shape, self.representation.shape))
@@ -706,31 +711,31 @@ class GPConvDeepSet(ConvDeepSet):
         if gp_lambda is None:
             gp_lambda = self.gp_lambda
 
-        target_in = target_in.transpose(0, 1)  # (B, M, Cin)
-        density, mu = self.last_prediction[..., :1], self.last_prediction[..., 1:]  # (B, M, 1)
+        if self.use_density:
+            density, mu = self.last_prediction[..., :1], self.last_prediction[..., 1:]
+        else:
+            mu = self.last_prediction
         L_k = self.representation  # (B, N, M)
 
-        K_ss = self.kernel(target_in, target_in).evaluate()  # (B, M, M)
+        K_ss = self.kernel(target_in, target_in).evaluate()[0]  # (B, M, M)
         K_ss -= torch.bmm(L_k.transpose(1, 2), L_k)
         L_ss = gpytorch.utils.cholesky.psd_safe_cholesky(K_ss)
 
-        samples = torch.randn(mu.shape[0],
-                              L_ss.shape[-1],
-                              num_samples)
+        samples = torch.randn(num_samples, *mu.shape)
         samples = samples.to(device=L_ss.device)
-        samples = torch.bmm(L_ss, samples)
-        samples = mu + gp_lambda * samples  # (B, M, num_samples)
+        samples = torch.matmul(L_ss, samples)  # (num_samples, B, M, Cout)
+        samples = mu.unsqueeze(0) + gp_lambda * samples  # (num_samples, B, M, Cout)
 
-        samples = samples.permute(2, 0, 1)  # (num_samples, B, M)
-        samples = torch.cat((density.unsqueeze(0).repeat(num_samples, 1, 1, 1),
-                             samples.unsqueeze(-1)), -1)  # (num_samples, B, M, 2)
+        if self.use_density:
+            samples = torch.cat((density.unsqueeze(0).repeat(num_samples, 1, 1, 1),
+                                samples), -1)  # (num_samples, B, M, Cout+1)
 
         B, M = samples.shape[1:3]
         samples = samples.reshape(num_samples*B*M, -1)
         samples = self.project_out(samples)
         samples = samples.reshape(num_samples, B, M, -1)
 
-        return samples.transpose(1, 2)
+        return samples
 
 
 
@@ -799,6 +804,8 @@ class ConvCNP(nn.Module):
                          self.points_per_unit,
                          self.range_padding,
                          self.grid_divisible_by)
+        if store_rep:
+            self.grid = grid
 
         # apply interpolation, conv net and final interpolation
         representation = self.input_interpolation(context_in,
@@ -830,21 +837,18 @@ class ConvCNP(nn.Module):
             raise NotImplementedError("This ConvCNP doesn't use a GP \
                 interpolator and can't be sampled from.")
 
-        grid = make_grid(target_in,
-                         self.points_per_unit,
-                         self.range_padding,
-                         self.grid_divisible_by)
+        grid = self.grid  # (B, G, Cin)
 
-        samples = self.input_interpolation.sample(grid, num_samples, gp_lambda)  # (num_samples, G, B, 2)
-        samples = samples.permute(0, 2, 3, 1)
+        samples = self.input_interpolation.sample(grid, num_samples, gp_lambda)  # (num_samples, B, G, 2)
+        samples = samples.transpose(2, 3)
         samples = stack_batch(samples)  # (num_samples*B, 2, G)
         samples = self.conv_net(samples)  # (num_samples*B, R, G)
-        samples = samples.permute(2, 0, 1)
+        samples = samples.transpose(1, 2)  # (num_samples*B, G, R)
         
-        grid = grid.repeat(1, num_samples, 1)
-        target_in = target_in.repeat(1, num_samples, 1)
+        grid = grid.repeat(num_samples, 1, 1)
+        target_in = target_in.repeat(num_samples, 1, 1)
 
-        samples = self.output_interpolation(grid, samples, target_in)  # (M, num_samples*B, Cout)
-        samples = unstack_batch(samples.transpose(0, 1), num_samples).transpose(1, 2)
+        samples = self.output_interpolation(grid, samples, target_in)  # (num_samples*B, M, Cout)
+        samples = unstack_batch(samples, num_samples)
 
-        return samples  # (num_samples, M, B, Cout)
+        return samples  # (num_samples, B, M, Cout)

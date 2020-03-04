@@ -224,10 +224,31 @@ def make_defaults(representation_channels=128):
         )
     )
 
-    GPCONVCNP = Config(  # Requires CONVCNP
-        model_kwargs=dict(
-            use_gp=True,
-            use_density_norm=False
+    # GPCONVCNP = Config(  # Requires CONVCNP
+    #     model_kwargs=dict(
+    #         use_gp=True,
+    #         use_density_norm=False
+    #     )
+    # )
+
+    GPCONVCNP = Config(
+        modules=dict(input_interpolation=GPConvDeepSet),
+        modules_kwargs=dict(
+            input_interpolation=dict(
+                use_density=False,
+                use_density_norm=False,
+                gp_lambda=0.2,
+                gp_sample_from_posterior=0
+            )
+        )
+    )
+
+    GPPOSTERIOR = Config(
+        modules_kwargs=dict(
+            input_interpolation=dict(
+                gp_sample_from_posterior=1,
+                init_lengthscale=0.001
+            )
         )
     )
 
@@ -273,6 +294,7 @@ def make_defaults(representation_channels=128):
         "ATTENTION": ATTENTION,
         "CONVCNP": CONVCNP,
         "GPCONVCNP": GPCONVCNP,
+        "GPPOSTERIOR": GPPOSTERIOR,
         "MATERNKERNEL": MATERNKERNEL,
         "WEAKLYPERIODICKERNEL": WEAKLYPERIODICKERNEL,
         "STEP": STEP,
@@ -382,11 +404,21 @@ class NeuralProcessExperiment(PytorchExperiment):
             loss_total += loss_latent
 
         # backward
+        # ------------------------------------
+        # on rare occasions, the cholesky decomposition in the GP
+        # fails, so we need to catch that
         loss_total.backward()
-        if self.config.clip_grad > 0:
-            nn.utils.clip_grad_norm_(self.model.parameters(),
-                                     self.config.clip_grad)
-        self.optimizer.step()
+        skip = False
+        if type(self.model) == ConvCNP and type(self.model.input_interpolation) == GPConvDeepSet:
+            for p in self.model.parameters():
+                if torch.any(torch.isnan(p.grad)):
+                    skip = True
+                    break
+        if not skip:
+            if self.config.clip_grad > 0:
+                nn.utils.clip_grad_norm_(self.model.parameters(),
+                                        self.config.clip_grad)
+            self.optimizer.step()
 
         # logging and LR updates
         batch["loss_recon"] = loss_recon.item()
