@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 
-from neuralprocess.util import tensor_to_loc_scale, stack_batch, unstack_batch
+from neuralprocess.util import tensor_to_loc_scale, stack_batch, unstack_batch, match_shapes
 
 
 
@@ -110,7 +110,7 @@ class NeuralProcess(nn.Module):
         context_in = stack_batch(context_in)
         context_out = stack_batch(context_out)
 
-        prior_rep = self.prior_encoder(torch.cat((context_in, context_out), 1))
+        prior_rep = self.prior_encoder(torch.cat(match_shapes(context_in, context_out, ignore_axes=1), 1))
         prior_rep = unstack_batch(prior_rep, B)
         prior_rep = self.aggregate(prior_rep)
 
@@ -144,7 +144,7 @@ class NeuralProcess(nn.Module):
         context_in = stack_batch(context_in)
         context_out = stack_batch(context_out)
 
-        rep = self.deterministic_encoder(torch.cat((context_in, context_out), 1))
+        rep = self.deterministic_encoder(torch.cat(match_shapes(context_in, context_out, ignore_axes=1), 1))
         rep = unstack_batch(rep, B)
         rep = self.aggregate(rep)
         if store_rep:
@@ -170,9 +170,9 @@ class NeuralProcess(nn.Module):
         B, N = context_in.shape[:2]
         M = target_in.shape[1]
 
-        context = torch.cat((context_in, context_out), 2)
-        target = torch.cat((target_in, target_out), 2)
-        context = torch.cat((context, target), 1)
+        context = torch.cat(match_shapes(context_in, context_out, ignore_axes=2), 2)
+        target = torch.cat(match_shapes(target_in, target_out, ignore_axes=2), 2)
+        context = torch.cat(match_shapes(context, target, ignore_axes=1), 1)
 
         context = stack_batch(context)
 

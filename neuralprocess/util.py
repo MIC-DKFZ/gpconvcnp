@@ -106,3 +106,44 @@ def make_grid(x, points_per_unit, padding=0.1, grid_divisible_by=None):
     grid = grid.to(dtype=x.dtype, device=x.device)
 
     return grid
+
+
+
+def match_shapes(*args, ignore_axes=None):
+    """
+    Expand multiple tensors to have matching shapes.
+    If a tensor has fewer dimensions than others, new axes will be added at the end.
+
+    Args:
+        *args (torch.tensor): Any number of tensors.
+        ignore_axes (iterable): Can be None, int or collection of ints.
+            These axes won't be modified.
+
+    Returns:
+        tuple: Modified input tensors.
+
+    """
+
+    args = list(args)
+
+    dims = [a.ndim for a in args]
+    target_dim = max(dims)
+    for a, arr in enumerate(args):
+        while arr.ndim < target_dim:
+            arr = arr.unsqueeze(-1)
+        args[a] = arr
+
+    shapes = np.array([np.array(a.shape) for a in args])
+    target_shape = np.max(shapes, axis=0)
+
+    for a, arr in enumerate(args):
+        target_shape_a = target_shape.copy()
+        if ignore_axes is not None:
+            if isinstance(ignore_axes, int):
+                target_shape_a[ignore_axes] = arr.shape[ignore_axes]
+            elif len(ignore_axes) > 0:
+                for ax in ignore_axes:
+                    target_shape_a[ax] = arr.shape[ax]
+        args[a] = arr.expand(*target_shape_a)
+
+    return tuple(args)

@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 
 from neuralprocess.model import NeuralProcess
-from neuralprocess.util import tensor_to_loc_scale, stack_batch, unstack_batch
+from neuralprocess.util import tensor_to_loc_scale, stack_batch, unstack_batch, match_shapes
 
 
 
@@ -92,7 +92,7 @@ class AttentiveNeuralProcess(NeuralProcess):
         S = tuple(target_in.shape[3:])
                         
         encoder_input = torch.cat(
-            (stack_batch(context_in), stack_batch(context_out)), 1)
+            match_shapes(stack_batch(context_in), stack_batch(context_out), ignore_axes=1), 1)
         representations = self.deterministic_encoder(encoder_input)
         representations = unstack_batch(representations, B)
 
