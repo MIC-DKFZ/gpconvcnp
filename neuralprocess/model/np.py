@@ -209,24 +209,16 @@ class NeuralProcess(nn.Module):
             concat = [target_in, ]
 
             if sample is not None:
-
-                # broadcast global sample
-                if sample.ndim < target_in.ndim:
+                if sample.ndim != target_in.ndim:
                     sample = sample.unsqueeze(1)
-                    repeats = [1, target_in.shape[1]] + [1,] * (sample.ndim-2)
-                    sample = sample.repeat(*repeats)
                 concat.append(sample)
 
             if representation is not None:
-
-                # broadcast global representation
-                if representation.ndim < target_in.ndim:
+                if representation.ndim != target_in.ndim:
                     representation = representation.unsqueeze(1)
-                    repeats = [1, target_in.shape[1]] + [1,] * (representation.ndim-2)
-                    representation = representation.repeat(*repeats)
                 concat.append(representation)
 
-            return self.decoder(torch.cat(concat, 2))
+            return self.decoder(torch.cat(match_shapes(*concat, ignore_axes=2), 2))
 
     
     def forward(self,
