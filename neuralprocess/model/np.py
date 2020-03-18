@@ -200,6 +200,8 @@ class NeuralProcess(nn.Module):
 
         """
 
+        B = target_in.shape[0]
+
         if sample is None and representation is None:
 
             return self.decoder(target_in)
@@ -209,16 +211,26 @@ class NeuralProcess(nn.Module):
             concat = [target_in, ]
 
             if sample is not None:
-                if sample.ndim != target_in.ndim:
+                if sample.ndim != target_in.ndim or sample.shape[1] != target_in.shape[1]:
+                    # this could fail if there is one spatial axis in
+                    # a global sample and the number of target points
+                    # happens to be the number of channels of the sample.
+                    # Consider introducing flag for global/non-global!
                     sample = sample.unsqueeze(1)
                 concat.append(sample)
 
             if representation is not None:
-                if representation.ndim != target_in.ndim:
+                if representation.ndim != target_in.ndim or representation.shape[1] != target_in.shape[1]:
+                    # see comment for sample
                     representation = representation.unsqueeze(1)
                 concat.append(representation)
 
-            return self.decoder(torch.cat(match_shapes(*concat, ignore_axes=2), 2))
+            concat = match_shapes(*concat, ignore_axes=2)
+            concat = [stack_batch(c) for c in concat]
+            result = self.decoder(torch.cat(concat, 1))
+            result = unstack_batch(result, B)
+
+            return result
 
     
     def forward(self,
