@@ -124,7 +124,7 @@ def match_shapes(*args, ignore_axes=None):
 
     """
 
-    args = list(args)
+    args = list(filter(lambda x: x is not None, args))
 
     dims = [a.ndim for a in args]
     target_dim = max(dims)
