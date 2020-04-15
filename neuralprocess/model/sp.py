@@ -7,6 +7,7 @@ from neuralprocess.util import tensor_to_loc_scale, stack_batch, unstack_batch, 
 
 class SegmentationProcess(nn.Module):
     """
+    TBD
 
     Args:
         context_encoder (torch.nn.Module): Encoder for the context.
@@ -200,12 +201,15 @@ class AttentiveSegmentationProcess(SegmentationProcess):
 
     def __init__(self, attention, global_sum=True, **kwargs):
 
-        super().__init__(*args, **kwargs)
+        super().__init__(**kwargs)
 
-        self.attention = attention
+        if isinstance(attention, (list, tuple)):
+            self.attention = tuple(attention)
+        else:
+            self.attention = (attention, )
         self.global_sum = global_sum
 
-    def aggregate(self, context_query, target_query, context_representation, target_representation=None):
+    def aggregate(self, context_query, target_query, context_representation, target_representation=None,):
         """
         Aggregate representations. This implementation uses attention over queries/keys.
 
@@ -234,22 +238,27 @@ class AttentiveSegmentationProcess(SegmentationProcess):
         if target_representation is None:
             target_representation = [None, ] * len(context_representation)
 
-        for r, rep in enumerate(context_representation[:-1]):
-            concat = match_shapes(rep, target_representation[r], target_query, ignore_axes=2)
-            if target_representation[r] is None:
-                concat = concat[:1]
-            else:
-                concat = concat[:2]
-            context_representation[r] = torch.cat(concat, 2)
+        attention = list(self.attention)
+        while len(attention) < len(context_representation) - int(self.global_sum):
+            attention = [None] + attention
 
-        # either use summation or attention in the lowest layer
-        if self.global_sum:
-            context_representation[-1] = context_representation[-1].mean(1, keepdim=True)
-            context_representation[-1] = torch.cat(
-                match_shapes(context_representation[-1], target_representation[-1], target_query, ignore_axes=2),
-                2
-            )
-        else:
-            pass
+        for r, rep in enumerate(context_representation):
+
+            # regular summation in the deepest level if desired
+            # also used if there is no attention mechanism
+            if (r == len(context_representation) - 1 and self.global_sum) or attention[r] is None:
+
+                rep = rep.mean(1, keepdim=True)
+                concat = [rep]
+                if target_representation[r] is not None:
+                    concat.append(target_representation[r])
+                concat.append(target_query)
+                concat = match_shapes(*concat, ignore_axes=2)
+                context_representation[r] = torch.cat(concat, 2)
+
+            else:
+
+                # discarding weights for now
+                context_representation[r] = attention[r](target_query, context_query, rep)[0]
 
         return context_representation
