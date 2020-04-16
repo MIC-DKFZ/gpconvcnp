@@ -209,6 +209,10 @@ class AttentiveSegmentationProcess(SegmentationProcess):
             self.attention = (attention, )
         self.global_sum = global_sum
 
+        # so .to(device) works
+        for m, module in enumerate(self.attention):
+            self.add_module("attention_{}".format(m), module)
+
     def aggregate(self, context_query, target_query, context_representation, target_representation=None,):
         """
         Aggregate representations. This implementation uses attention over queries/keys.
