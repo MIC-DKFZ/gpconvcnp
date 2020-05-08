@@ -17,19 +17,17 @@ from neuralprocess.model import generic
 ########################################################################
 
 
-
 def custom_init(m):
     """Custom initialization used in ConvCNP."""
 
     if type(m) == nn.Linear:
-        nn.init.xavier_normal_(m.weight, 1.)
-        if hasattr(m, 'bias'):
-            nn.init.constant_(m.bias, 0.)
+        nn.init.xavier_normal_(m.weight, 1.0)
+        if hasattr(m, "bias"):
+            nn.init.constant_(m.bias, 0.0)
     elif type(m) in (nn.Conv1d, nn.ConvTranspose1d):
-        nn.init.xavier_normal_(m.weight, 1.)
-        if hasattr(m, 'bias'):
+        nn.init.xavier_normal_(m.weight, 1.0)
+        if hasattr(m, "bias"):
             nn.init.constant_(m.bias, 1e-3)
-
 
 
 class ConvDeepSet(nn.Module):
@@ -47,13 +45,15 @@ class ConvDeepSet(nn.Module):
 
     """
 
-    def __init__(self,
-                 in_channels,
-                 out_channels,
-                 learn_length_scale=True,
-                 init_length_scale=0.1,
-                 use_density=True,
-                 use_density_norm=True):
+    def __init__(
+        self,
+        in_channels,
+        out_channels,
+        learn_length_scale=True,
+        init_length_scale=0.1,
+        use_density=True,
+        use_density_norm=True,
+    ):
 
         super(ConvDeepSet, self).__init__()
 
@@ -61,9 +61,10 @@ class ConvDeepSet(nn.Module):
         self.use_density = use_density
         self.use_density_norm = use_density_norm
         self.in_channels = in_channels + 1 if self.use_density else in_channels
-        self.sigma = nn.Parameter(np.log(init_length_scale) *
-                                  torch.ones(self.in_channels),
-                                  requires_grad=learn_length_scale)
+        self.sigma = nn.Parameter(
+            np.log(init_length_scale) * torch.ones(self.in_channels),
+            requires_grad=learn_length_scale,
+        )
         self.sigma_fn = torch.exp
 
         self.projection = nn.Linear(self.in_channels, self.out_channels)
@@ -144,25 +145,37 @@ class ConvDeepSet(nn.Module):
         return torch.exp(-0.5 * dists.unsqueeze(-1) / scales ** 2)
 
 
-
 class GPConvDeepSet(ConvDeepSet):
     """
     A ConvDeepSet that replaces the kernel interpolation with a GP.
     """
 
-    def __init__(self, *args, **kwargs):
+    def __init__(
+        self,
+        gp_sample_from_posterior=False,
+        gp_lambda_learnable=False,
+        gp_noise_learnable=False,
+        gp_noise_init=-14.0,
+        *args,
+        **kwargs
+    ):
 
         super().__init__(*args, **kwargs)
+
+        self.gp_sample_from_posterior = gp_sample_from_posterior
+        self.gp_lambda_learnable = gp_lambda_learnable
+        self.gp_lambda = nn.Parameter(torch.zeros(1), requires_grad=gp_lambda_learnable)
+        self.gp_noise_learnable = gp_noise_learnable
+        self.gp_noise = nn.Parameter(
+            gp_noise_init * torch.ones(1), requires_grad=gp_noise_learnable
+        )
 
         self.representation = None
         self.last_prediction = None
 
-    def forward(self,
-                context_in,
-                context_out,
-                target_in,
-                store_rep=False,
-                *args, **kwargs):
+    def forward(
+        self, context_in, context_out, target_in, store_rep=False, *args, **kwargs
+    ):
         """
         Forward pass through the layer with evaluations at locations target_in.
 
@@ -193,26 +206,47 @@ class GPConvDeepSet(ConvDeepSet):
         # the density
         dists_in = torch.pow(context_in.unsqueeze(2) - context_in.unsqueeze(1), 2)
         dists_in = dists_in.sum(-1)
-        K = torch.exp(-0.5 * dists_in / self.sigma_fn(self.sigma[-1])**2)
+        K = torch.exp(-0.5 * dists_in / self.sigma_fn(self.sigma[-1]) ** 2)
+        K = K + torch.eye(K.shape[-1]).type_as(K) * self.sigma_fn(
+            self.gp_noise
+        ).type_as(K)
         L = gpytorch.utils.cholesky.psd_safe_cholesky(K)  # (B, N, N)
 
         # Do the same for context_in and target_in
         dists = torch.pow(context_in.unsqueeze(2) - target_in.unsqueeze(1), 2)
         dists = dists.sum(-1)
-        K_s = torch.exp(-0.5 * dists / self.sigma_fn(self.sigma[-1])**2)
+        K_s = torch.exp(-0.5 * dists / self.sigma_fn(self.sigma[-1]) ** 2)
         L_k, _ = torch.solve(K_s, L)  # (B, N, M)
 
         # Compute mean prediction
         # Shape (B, M, 1)
         output = torch.bmm(L_k.transpose(1, 2), torch.solve(context_out, L)[0])
 
+        # Sample from the posterior if desired
+        if self.gp_sample_from_posterior:
+            K_ss = torch.exp(
+                -0.5
+                * torch.pow(target_in.unsqueeze(2) - target_in.unsqueeze(1), 2).sum(-1)
+                / self.sigma_fn(self.sigma[-1]) ** 2
+            )  # (B, M, M)
+            L_ss = gpytorch.utils.cholesky.psd_safe_cholesky(
+                K_ss - torch.bmm(L_k.transpose(1, 2), L_k)
+            )  # (B, M, M)
+            sample = torch.randn(output.shape[0], L_ss.shape[-1], 1)
+            sample = sample.to(device=L_ss.device)
+            self.gp_lambda = self.gp_lambda.type_as(sample)
+            sample = self.sigma_fn(self.gp_lambda) * torch.bmm(
+                L_ss, sample
+            )  # (B, M, 1)
+            output = output + sample
+
         # Append density channel if required
         if self.use_density:
-            weights = torch.exp(-0.5 * dists / self.sigma_fn(self.sigma[0])**2)
+            weights = torch.exp(-0.5 * dists / self.sigma_fn(self.sigma[0]) ** 2)
             density = torch.ones(B, N, M).to(dists.device) * weights
             density = torch.sum(density, 1).unsqueeze(-1)  # (B, M, 1)
             if self.use_density_norm:
-                output /= (density + 1e-8)
+                output /= density + 1e-8
             output = torch.cat((density, output), -1)
 
         # Store for sampling
@@ -228,13 +262,14 @@ class GPConvDeepSet(ConvDeepSet):
 
         return output
 
-    def sample(self, target_in, num_samples, gp_lambda=0.2):
+    def sample(self, target_in, num_samples, gp_lambda=None):
         """Draw GP samples for target_in.
 
         Args:
             target_in (torch.tensor): New input values, shape (B, M, 1).
             num_samples (int): Draw this many samples.
             gp_lambda (float): GP covariance will be squeezed by this factor.
+                If None, we use the stored attribute.
 
         Returns:
             torch.tensor: Output values at target_in, shape (num_samples, B, M, Cout).
@@ -245,9 +280,19 @@ class GPConvDeepSet(ConvDeepSet):
             raise ValueError("Please run a forward pass with store_rep=True!")
 
         if target_in.shape[1] != self.representation.shape[-1]:
-            raise IndexError("target_in shape is {}, representation shape is {}. \
+            raise IndexError(
+                "target_in shape is {}, representation shape is {}. \
                 Second axis of target_in and last axis of representation should \
-                match!".format(target_x.shape, self.representation.shape))
+                match!".format(
+                    target_x.shape, self.representation.shape
+                )
+            )
+
+        if gp_lambda is None:
+            gp_lambda = self.gp_lambda
+        elif not torch.is_tensor(gp_lambda):
+            gp_lambda = torch.tensor(gp_lambda)
+        gp_lambda = gp_lambda.type_as(target_in)
 
         mu = self.last_prediction
         if self.use_density:
@@ -256,7 +301,7 @@ class GPConvDeepSet(ConvDeepSet):
 
         dists = torch.pow(target_in.unsqueeze(2) - target_in.unsqueeze(1), 2)
         dists = dists.sum(-1)  # (B, M, M)
-        K_ss = torch.exp(-0.5 * dists / self.sigma_fn(self.sigma[-1])**2)
+        K_ss = torch.exp(-0.5 * dists / self.sigma_fn(self.sigma[-1]) ** 2)
         K_ss -= torch.bmm(L_k.transpose(1, 2), L_k)
         L_ss = gpytorch.utils.cholesky.psd_safe_cholesky(K_ss)
 
@@ -274,12 +319,11 @@ class GPConvDeepSet(ConvDeepSet):
             samples = torch.cat((density, samples), -1)
 
         B, M = samples.shape[1:3]
-        samples = samples.view(num_samples*B*M, -1)
+        samples = samples.view(num_samples * B * M, -1)
         samples = self.projection(samples)
         samples = samples.view(num_samples, B, M, -1)
 
         return samples
-
 
 
 class ConvCNP(nn.Module):
@@ -307,17 +351,24 @@ class ConvCNP(nn.Module):
             
     """
 
-    def __init__(self,
-                 conv_net,
-                 use_gp=False,
-                 learn_length_scale=True,
-                 init_length_scale=0.1,
-                 use_density=True,
-                 use_density_norm=True,
-                 points_per_unit=20,
-                 range_padding=0.1,
-                 grid_divisible_by=64,
-                 *args, **kwargs):
+    def __init__(
+        self,
+        conv_net,
+        use_gp=False,
+        learn_length_scale=True,
+        init_length_scale=0.1,
+        use_density=True,
+        use_density_norm=True,
+        points_per_unit=20,
+        range_padding=0.1,
+        grid_divisible_by=64,
+        gp_sample_from_posterior=False,
+        gp_lambda_learnable=False,
+        gp_noise_learnable=False,
+        gp_noise_init=-14.0,
+        *args,
+        **kwargs
+    ):
 
         super(ConvCNP, self).__init__()
 
@@ -337,8 +388,12 @@ class ConvCNP(nn.Module):
                 out_channels=self.conv_net.in_channels,
                 learn_length_scale=learn_length_scale,
                 init_length_scale=init_length_scale,
-                use_density=True,
-                use_density_norm=False
+                use_density=use_density,
+                use_density_norm=use_density_norm,
+                gp_sample_from_posterior=gp_sample_from_posterior,
+                gp_lambda_learnable=gp_lambda_learnable,
+                gp_noise_learnable=gp_noise_learnable,
+                gp_noise_init=gp_noise_init,
             )
         else:
             self.input_interpolation = ConvDeepSet(
@@ -346,7 +401,8 @@ class ConvCNP(nn.Module):
                 out_channels=self.conv_net.in_channels,
                 learn_length_scale=learn_length_scale,
                 init_length_scale=init_length_scale,
-                use_density=True
+                use_density=use_density,
+                use_density_norm=use_density_norm,
             )
 
         self.output_interpolation_mean = ConvDeepSet(
@@ -354,7 +410,7 @@ class ConvCNP(nn.Module):
             out_channels=1,
             learn_length_scale=learn_length_scale,
             init_length_scale=init_length_scale,
-            use_density=False
+            use_density=False,
         )
 
         self.output_interpolation_sigma = ConvDeepSet(
@@ -362,16 +418,19 @@ class ConvCNP(nn.Module):
             out_channels=1,
             learn_length_scale=learn_length_scale,
             init_length_scale=init_length_scale,
-            use_density=False
+            use_density=False,
         )
 
-    def forward(self,
-                context_in,
-                context_out,
-                target_in,
-                target_out=None,
-                store_rep=False,
-                *args, **kwargs):
+    def forward(
+        self,
+        context_in,
+        context_out,
+        target_in,
+        target_out=None,
+        store_rep=False,
+        *args,
+        **kwargs
+    ):
         """
         Forward pass in the Convolutional Conditional Neural Process.
 
@@ -395,23 +454,24 @@ class ConvCNP(nn.Module):
         if len(target_in.shape) == 2:
             target_in = target_in.unsqueeze(2)
 
-        grid = make_grid((context_in, target_in),
-                         self.points_per_unit,
-                         self.range_padding,
-                         self.grid_divisible_by)
+        grid = make_grid(
+            (context_in, target_in),
+            self.points_per_unit,
+            self.range_padding,
+            self.grid_divisible_by,
+        )
         if store_rep:
             self.grid = grid
 
-        representation = self.input_interpolation(context_in,
-                                                  context_out,
-                                                  grid,
-                                                  store_rep=store_rep)
+        representation = self.input_interpolation(
+            context_in, context_out, grid, store_rep=store_rep
+        )
         representation = self.activation(representation)  # (B, gridsize, R1)
 
         representation = representation.transpose(1, 2)
         representation = self.conv_net(representation)
         representation = representation.transpose(1, 2)  # (B, gridsize, R2)
-        
+
         mean = self.output_interpolation_mean(grid, representation, target_in)
         sigma = self.output_interpolation_sigma(grid, representation, target_in)
 
@@ -420,8 +480,7 @@ class ConvCNP(nn.Module):
     @property
     def num_params(self):
         """Number of parameters in model."""
-        return np.sum([torch.tensor(param.shape).prod()
-                       for param in self.parameters()])
+        return np.sum([torch.tensor(param.shape).prod() for param in self.parameters()])
 
     def sample(self, target_in, num_samples, gp_lambda=0.2):
         """
@@ -439,14 +498,16 @@ class ConvCNP(nn.Module):
         """
 
         if not hasattr(self.input_interpolation, "sample"):
-            raise NotImplementedError("This ConvCNP doesn't use a GP \
-                interpolator and can't be sampled from.")
+            raise NotImplementedError(
+                "This ConvCNP doesn't use a GP \
+                interpolator and can't be sampled from."
+            )
 
         grid = self.grid  # (B, G, 1)
 
-        samples = self.input_interpolation.sample(grid,
-                                                  num_samples,
-                                                  gp_lambda=gp_lambda)
+        samples = self.input_interpolation.sample(
+            grid, num_samples, gp_lambda=gp_lambda
+        )
         samples = self.activation(samples)
         samples = stack_batch(samples)  # (num_samples*B, G, R1)
 
@@ -454,19 +515,17 @@ class ConvCNP(nn.Module):
         samples = self.conv_net(samples)
         samples = samples.transpose(1, 2)  # (num_samples*B, G, R2)
 
-        
-        means = self.output_interpolation_mean(grid.repeat(num_samples, 1, 1),
-                                               samples,
-                                               target_in.repeat(num_samples, 1, 1))
+        means = self.output_interpolation_mean(
+            grid.repeat(num_samples, 1, 1), samples, target_in.repeat(num_samples, 1, 1)
+        )
         means = unstack_batch(means, num_samples)
 
-        sigmas = self.output_interpolation_sigma(grid.repeat(num_samples, 1, 1),
-                                                 samples,
-                                                 target_in.repeat(num_samples, 1, 1))
+        sigmas = self.output_interpolation_sigma(
+            grid.repeat(num_samples, 1, 1), samples, target_in.repeat(num_samples, 1, 1)
+        )
         sigmas = unstack_batch(sigmas, num_samples)
 
         return torch.cat((means, sigmas), -1)
-
 
 
 ########################################################################
@@ -505,7 +564,7 @@ class ConvCNP(nn.Module):
 #                  **kwargs):
 
 #         super().__init__()
-        
+
 #         self.in_channels = in_channels
 #         if use_density:
 #             self.in_channels += 1
@@ -560,7 +619,7 @@ class ConvCNP(nn.Module):
 #         if self.use_density:
 #             density = torch.ones(B, N, 1)
 #             density = density.to(dtype=context_in.dtype, device=context_in.device)
-#             context_out = torch.cat((density, context_out), -1)        
+#             context_out = torch.cat((density, context_out), -1)
 
 #         # Perform the weighting, then sum over inputs
 #         output = context_out.unsqueeze(-2) * K
@@ -579,7 +638,6 @@ class ConvCNP(nn.Module):
 #             output = unstack_batch(output, B)
 
 #         return output  # (B, M, R)
-
 
 
 # class GPConvDeepSet(ConvDeepSet):
@@ -666,7 +724,7 @@ class ConvCNP(nn.Module):
 #             samples = torch.matmul(L_ss.unsqueeze(0), samples)  # (num_samples, B, M, Cout)
 #             output = output.unsqueeze(0) + self.gp_lambda * samples  # (num_samples, B, M, Cout)
 #             output = output.mean(0)  # (B, M, Cout)
-        
+
 #         if self.use_density:
 #             density = K_s.unsqueeze(-1).mean(1)  # (B, M, 1)
 #             if self.use_density_norm:
@@ -675,7 +733,7 @@ class ConvCNP(nn.Module):
 
 #         if store_rep:
 #             self.representation = L_k
-#             self.last_prediction = output  
+#             self.last_prediction = output
 
 #         if hasattr(self, "project_out"):
 #             output = stack_batch(output)
@@ -738,7 +796,6 @@ class ConvCNP(nn.Module):
 #         return samples
 
 
-
 # class ConvCNP(nn.Module):
 #     """
 #     ConvCNP works by interpolating context observations onto a grid,
@@ -767,7 +824,7 @@ class ConvCNP(nn.Module):
 #                  range_padding=0.1,
 #                  grid_divisible_by=None,
 #                  *args, **kwargs):
-        
+
 #         super().__init__()
 
 #         self.input_interpolation = input_interpolation
@@ -844,7 +901,7 @@ class ConvCNP(nn.Module):
 #         samples = stack_batch(samples)  # (num_samples*B, 2, G)
 #         samples = self.conv_net(samples)  # (num_samples*B, R, G)
 #         samples = samples.transpose(1, 2)  # (num_samples*B, G, R)
-        
+
 #         grid = grid.repeat(num_samples, 1, 1)
 #         target_in = target_in.repeat(num_samples, 1, 1)
 
