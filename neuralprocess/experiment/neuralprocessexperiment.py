@@ -286,11 +286,6 @@ class NeuralProcessExperiment(PytorchExperiment):
 
     def train(self, epoch):
 
-        print(
-            torch.exp(self.model.input_interpolation.gp_lambda),
-            torch.exp(self.model.input_interpolation.gp_noise),
-        )
-
         self.model.train()
         self.optimizer.zero_grad()
 
