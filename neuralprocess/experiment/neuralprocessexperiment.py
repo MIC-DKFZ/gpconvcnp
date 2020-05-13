@@ -781,7 +781,7 @@ class NeuralProcessExperiment(PytorchExperiment):
                                 logvar_transform=self.config.output_transform_logvar,
                                 axis=2,
                             )
-                            ll = reconstruction.log_prob(target_out.cpu()).numpy()
+                            ll = reconstruction.log_prob(context_out.cpu()).numpy()
                             ll = np.nanmean(ll, axis=(1, 2))
                             reconstruction_ll.append(ll)
                         reconstruction_ll = np.nanmean(reconstruction_ll, axis=0)
