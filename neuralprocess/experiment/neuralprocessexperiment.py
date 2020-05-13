@@ -668,8 +668,6 @@ class NeuralProcessExperiment(PytorchExperiment):
 
         for b in range(self.config.test_batches_single):
 
-            print(b)
-
             scores_batch = []
 
             for num_context in self.config.test_num_context:
@@ -724,7 +722,7 @@ class NeuralProcessExperiment(PytorchExperiment):
                         context_out,
                         context_in,
                         context_out,
-                        store_rep=False,
+                        store_rep=True,
                     )
                     reconstruction = tensor_to_loc_scale(
                         reconstruction,
