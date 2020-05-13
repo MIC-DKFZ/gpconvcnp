@@ -668,6 +668,8 @@ class NeuralProcessExperiment(PytorchExperiment):
 
         for b in range(self.config.test_batches_single):
 
+            print(b)
+
             scores_batch = []
 
             for num_context in self.config.test_num_context:
@@ -683,42 +685,6 @@ class NeuralProcessExperiment(PytorchExperiment):
                     context_out = batch["context_out"].to(self.config.device)
                     target_in = batch["target_in"].to(self.config.device)
                     target_out = batch["target_out"].to(self.config.device)
-
-                    if hasattr(self.model, "prior") and self.model.prior is not None:
-                        predictive_likelihood = []
-                        while (
-                            len(predictive_likelihood) < self.config.test_latent_samples
-                        ):
-                            sample = self.model.prior.sample()
-                            prediction = self.model.reconstruct(target_x, sample)
-                            if not self.config.loc_scale_prediction:
-                                prediction = (
-                                    prediction,
-                                    torch.ones_like(prediction) * np.sqrt(0.5),
-                                )
-                            predictive_likelihood.append(
-                                torch.mean(
-                                    self.model.distribution(*prediction).log_prob(
-                                        target_y
-                                    ),
-                                    (1, 2),
-                                )
-                            )
-                            predictive_error_squared_sample = (
-                                target_y.cpu().numpy() - prediction[0].cpu().numpy()
-                            ) ** 2  # automatically keeps the last one
-                            predictive_error_squared_sample = np.nanmean(
-                                predictive_error_squared_sample,
-                                axis=tuple(
-                                    range(1, predictive_error_squared_sample.ndim)
-                                ),
-                            )
-                        predictive_likelihood_sample = (
-                            predictive_likelihood[-1].cpu().numpy()
-                        )
-                        predictive_likelihood = (
-                            torch.stack(predictive_likelihood).mean(0).cpu().numpy()
-                        )
 
                     # PREDICTIVE PERFORMANCE
                     prediction = self.model(
