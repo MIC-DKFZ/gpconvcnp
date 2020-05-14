@@ -223,7 +223,7 @@ class GPConvDeepSet(ConvDeepSet):
         output = torch.bmm(L_k.transpose(1, 2), torch.solve(context_out, L)[0])
 
         # Sample from the posterior if desired
-        if self.gp_sample_from_posterior:
+        if self.gp_sample_from_posterior and self.training:
             K_ss = torch.exp(
                 -0.5
                 * torch.pow(target_in.unsqueeze(2) - target_in.unsqueeze(1), 2).sum(-1)
@@ -482,7 +482,7 @@ class ConvCNP(nn.Module):
         """Number of parameters in model."""
         return np.sum([torch.tensor(param.shape).prod() for param in self.parameters()])
 
-    def sample(self, target_in, num_samples, gp_lambda=0.2):
+    def sample(self, target_in, num_samples, gp_lambda=None):
         """
         Sample from the Convolutional Conditional Neural Process.
 
