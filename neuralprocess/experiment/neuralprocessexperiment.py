@@ -666,107 +666,180 @@ class NeuralProcessExperiment(PytorchExperiment):
 
         scores = []
 
-        for b in range(self.config.test_batches_single):
+        while len(scores) < self.config.test_batches_single:
 
-            scores_batch = []
+            # Catch possible RuntimeError from GP
+            fail_counter = 0
+            try:
 
-            for num_context in self.config.test_num_context:
-                with torch.no_grad():
+                scores_batch = []
 
-                    if num_context == "random":
-                        self.generator.num_context = self.config.test_num_context_random
-                    else:
-                        self.generator.num_context = int(num_context)
+                for num_context in self.config.test_num_context:
+                    with torch.no_grad():
 
-                    batch = next(self.generator)
-                    context_in = batch["context_in"].to(self.config.device)
-                    context_out = batch["context_out"].to(self.config.device)
-                    target_in = batch["target_in"].to(self.config.device)
-                    target_out = batch["target_out"].to(self.config.device)
-
-                    # PREDICTIVE PERFORMANCE
-                    prediction = self.model(
-                        context_in, context_out, target_in, target_out, store_rep=True
-                    )
-                    prediction = tensor_to_loc_scale(
-                        prediction,
-                        distributions.Normal,
-                        logvar_transform=self.config.output_transform_logvar,
-                        axis=2,
-                    )
-                    predictive_error = torch.pow(prediction.loc - target_out, 2)
-                    predictive_error = predictive_error.cpu().numpy()
-                    predictive_error = np.nanmean(predictive_error, axis=(1, 2))
-                    if isinstance(self.model, (NeuralProcess, AttentiveNeuralProcess)):
-                        predictive_ll = []
-                        while len(predictive_ll) < self.config.test_latent_samples:
-                            prediction = self.model.sample(target_in, n=1)[0]
-                            prediction = tensor_to_loc_scale(
-                                prediction,
-                                distributions.Normal,
-                                logvar_transform=self.config.output_transform_logvar,
-                                axis=2,
+                        if num_context == "random":
+                            self.generator.num_context = (
+                                self.config.test_num_context_random
                             )
-                            ll = prediction.log_prob(target_out.cpu()).numpy()
-                            ll = np.nanmean(ll, axis=(1, 2))
-                            predictive_ll.append(ll)
-                        predictive_ll = np.nanmean(predictive_ll, axis=0)
-                    else:
-                        predictive_ll = prediction.log_prob(target_out)
-                        predictive_ll = predictive_ll.cpu().numpy()
-                        predictive_ll = np.nanmean(predictive_ll, axis=(1, 2))
+                        else:
+                            self.generator.num_context = int(num_context)
 
-                    # RECONSTRUCTION PERFORMANCE
-                    reconstruction = self.model(
-                        context_in,
-                        context_out,
-                        context_in,
-                        context_out,
-                        store_rep=True,
-                    )
-                    reconstruction = tensor_to_loc_scale(
-                        reconstruction,
-                        distributions.Normal,
-                        logvar_transform=self.config.output_transform_logvar,
-                        axis=2,
-                    )
-                    reconstruction_error = torch.pow(
-                        reconstruction.loc - context_out, 2
-                    )
-                    reconstruction_error = reconstruction_error.cpu().numpy()
-                    reconstruction_error = np.nanmean(reconstruction_error, axis=(1, 2))
-                    if isinstance(self.model, (NeuralProcess, AttentiveNeuralProcess)):
-                        reconstruction_ll = []
-                        while len(reconstruction_ll) < self.config.test_latent_samples:
-                            reconstruction = self.model.sample(context_in, n=1)[0]
-                            reconstruction = tensor_to_loc_scale(
-                                reconstruction,
-                                distributions.Normal,
-                                logvar_transform=self.config.output_transform_logvar,
-                                axis=2,
+                        batch = next(self.generator)
+                        context_in = batch["context_in"].to(self.config.device)
+                        context_out = batch["context_out"].to(self.config.device)
+                        target_in = batch["target_in"].to(self.config.device)
+                        target_out = batch["target_out"].to(self.config.device)
+
+                        # PREDICTIVE PERFORMANCE
+                        prediction = self.model(
+                            context_in,
+                            context_out,
+                            target_in,
+                            target_out,
+                            store_rep=True,
+                        )
+                        prediction = tensor_to_loc_scale(
+                            prediction,
+                            distributions.Normal,
+                            logvar_transform=self.config.output_transform_logvar,
+                            axis=2,
+                        )
+                        predictive_error = torch.pow(prediction.loc - target_out, 2)
+                        predictive_error = predictive_error.cpu().numpy()
+                        predictive_error = np.nanmean(predictive_error, axis=(1, 2))
+                        if (
+                            isinstance(
+                                self.model, (NeuralProcess, AttentiveNeuralProcess)
                             )
-                            ll = reconstruction.log_prob(context_out.cpu()).numpy()
-                            ll = np.nanmean(ll, axis=(1, 2))
-                            reconstruction_ll.append(ll)
-                        reconstruction_ll = np.nanmean(reconstruction_ll, axis=0)
-                    else:
-                        reconstruction_ll = reconstruction.log_prob(context_out)
-                        reconstruction_ll = reconstruction_ll.cpu().numpy()
-                        reconstruction_ll = np.nanmean(reconstruction_ll, axis=(1, 2))
+                            or self.model.use_gp
+                        ):
+                            predictive_ll = []
+                            while len(predictive_ll) < self.config.test_latent_samples:
+                                prediction = self.model.sample(target_in, 1)[0].cpu()
+                                prediction = tensor_to_loc_scale(
+                                    prediction,
+                                    distributions.Normal,
+                                    logvar_transform=self.config.output_transform_logvar,
+                                    axis=2,
+                                )
+                                ll = prediction.log_prob(target_out.cpu()).numpy()
+                                ll = np.nanmean(ll, axis=(1, 2))
+                                predictive_ll.append(ll)
+                            predictive_ll = np.nanmean(predictive_ll, axis=0)
+                        elif self.model.use_gp:
+                            predictive_ll = []
+                            for i in range(10):
+                                prediction = self.model.sample(
+                                    context_in, self.config.test_latent_samples // 10
+                                ).cpu()
+                                prediction = tensor_to_loc_scale(
+                                    prediction,
+                                    distributions.Normal,
+                                    logvar_transform=self.config.output_transform_logvar,
+                                    axis=3,
+                                )
+                                ll = prediction.log_prob(
+                                    target_out.cpu()
+                                    .unsqueeze(0)
+                                    .expand_as(prediction.loc)
+                                ).numpy()
+                                predictive_ll.append(np.nanmean(ll, axis=(2, 3)))
+                            predictive_ll = np.concatenate(predictive_ll, 0)
+                            predictive_ll = np.nanmean(predictive_ll, 0)
+                        else:
+                            predictive_ll = prediction.log_prob(target_out)
+                            predictive_ll = predictive_ll.cpu().numpy()
+                            predictive_ll = np.nanmean(predictive_ll, axis=(1, 2))
 
-                    score = np.stack(
-                        [
-                            predictive_ll,
-                            predictive_error,
-                            reconstruction_ll,
-                            reconstruction_error,
-                        ],
-                        axis=1,
-                    )[:, None, :]
-                    scores_batch.append(score)
+                        # RECONSTRUCTION PERFORMANCE
+                        reconstruction = self.model(
+                            context_in,
+                            context_out,
+                            context_in,
+                            context_out,
+                            store_rep=True,
+                        )
+                        reconstruction = tensor_to_loc_scale(
+                            reconstruction,
+                            distributions.Normal,
+                            logvar_transform=self.config.output_transform_logvar,
+                            axis=2,
+                        )
+                        reconstruction_error = torch.pow(
+                            reconstruction.loc - context_out, 2
+                        )
+                        reconstruction_error = reconstruction_error.cpu().numpy()
+                        reconstruction_error = np.nanmean(
+                            reconstruction_error, axis=(1, 2)
+                        )
+                        if isinstance(
+                            self.model, (NeuralProcess, AttentiveNeuralProcess)
+                        ):
+                            reconstruction_ll = []
+                            while (
+                                len(reconstruction_ll) < self.config.test_latent_samples
+                            ):
+                                reconstruction = self.model.sample(context_in, 1)[
+                                    0
+                                ].cpu()
+                                reconstruction = tensor_to_loc_scale(
+                                    reconstruction,
+                                    distributions.Normal,
+                                    logvar_transform=self.config.output_transform_logvar,
+                                    axis=2,
+                                )
+                                ll = reconstruction.log_prob(context_out.cpu()).numpy()
+                                ll = np.nanmean(ll, axis=(1, 2))
+                                reconstruction_ll.append(ll)
+                            reconstruction_ll = np.nanmean(reconstruction_ll, axis=0)
+                        elif self.model.use_gp:
+                            reconstruction_ll = []
+                            for i in range(10):
+                                reconstruction = self.model.sample(
+                                    context_in, self.config.test_latent_samples // 10
+                                ).cpu()
+                                reconstruction = tensor_to_loc_scale(
+                                    reconstruction,
+                                    distributions.Normal,
+                                    logvar_transform=self.config.output_transform_logvar,
+                                    axis=3,
+                                )
+                                ll = reconstruction.log_prob(
+                                    context_out.cpu()
+                                    .unsqueeze(0)
+                                    .expand_as(reconstruction.loc)
+                                ).numpy()
+                                reconstruction_ll.append(np.nanmean(ll, axis=(2, 3)))
+                            reconstruction_ll = np.concatenate(reconstruction_ll, 0)
+                            reconstruction_ll = np.nanmean(reconstruction_ll, 0)
+                        else:
+                            reconstruction_ll = reconstruction.log_prob(context_out)
+                            reconstruction_ll = reconstruction_ll.cpu().numpy()
+                            reconstruction_ll = np.nanmean(
+                                reconstruction_ll, axis=(1, 2)
+                            )
 
-            scores_batch = np.concatenate(scores_batch, 1)
-            scores.append(scores_batch)
+                        score = np.stack(
+                            [
+                                predictive_ll,
+                                predictive_error,
+                                reconstruction_ll,
+                                reconstruction_error,
+                            ],
+                            axis=1,
+                        )[:, None, :]
+                        scores_batch.append(score)
+
+                scores_batch = np.concatenate(scores_batch, 1)
+                scores.append(scores_batch)
+
+            except RuntimeError as re:
+
+                fail_counter += 1
+                if fail_counter > 100:
+                    raise re
+                else:
+                    continue
 
         scores = np.concatenate(scores, 0)
         self.elog.save_numpy_data(scores, "test_single.npy")
