@@ -20,6 +20,7 @@ if "CUDNN_DETERMINISTIC" in os.environ:
         cudnn.deterministic = True
 import gpytorch
 
+from batchgenerators.dataloading import MultiThreadedAugmenter
 from trixi.util import Config, ResultLogDict
 from trixi.experiment import PytorchExperiment
 
@@ -32,6 +33,7 @@ from neuralprocess.data import (
     GaussianProcessGenerator,
     WeaklyPeriodicKernel,
     StepFunctionGenerator,
+    LotkaVolterraGenerator,
 )
 from neuralprocess.data.gp import GaussianKernel, WeaklyPeriodicKernel, Matern52Kernel
 from neuralprocess.model import (
@@ -68,7 +70,7 @@ def make_defaults(representation_channels=128):
             target_fixed_size=False,
             output_noise=0.0,  # additive noise on context values
             linspace=False,  # x values from linspace instead of uniform
-            number_of_threads_in_multithreaded=1,  # not used atm
+            number_of_threads_in_multithreaded=1,  # will use MP if > 1
         ),
         # Model:
         # modules are instantiated first and then passed to the constructor
@@ -190,6 +192,31 @@ def make_defaults(representation_channels=128):
         ),
     )
 
+    LOTKAVOLTERRA = Config(
+        generator=LotkaVolterraGenerator,
+        generator_kwargs=dict(
+            num_context=[20, 80],
+            num_target=[70, 150],
+            number_of_threads_in_multithreaded=8,
+            predator_init=[50, 100],
+            prey_init=[100, 150],
+            rate0=[0.005, 0.01],
+            rate1=[0.5, 0.8],
+            rate2=[0.5, 0.8],
+            rate3=[0.005, 0.01],
+            sequence_length=10000,
+            rescale=0.01,
+            max_time=100.0,
+            max_population=500,
+            super_sample=1.5,
+            x_range=[0, 50],
+        ),
+        modules_kwargs=dict(
+            prior_encoder=dict(in_channels=3), decoder=dict(out_channels=4)
+        ),
+        plot_y_range=[0, 3],
+    )
+
     DETERMINISTICENCODER = Config(
         modules=dict(deterministic_encoder=generic.MLP),
         modules_kwargs=dict(
@@ -215,6 +242,7 @@ def make_defaults(representation_channels=128):
         "MATERNKERNEL": MATERNKERNEL,
         "WEAKLYPERIODICKERNEL": WEAKLYPERIODICKERNEL,
         "STEP": STEP,
+        "LOTKAVOLTERRA": LOTKAVOLTERRA,
         "DETERMINISTICENCODER": DETERMINISTICENCODER,
         "LONG": LONG,
     }
@@ -256,11 +284,13 @@ class NeuralProcessExperiment(PytorchExperiment):
 
     def setup_data(self):
 
-        # We can also wrap the generator in a MultithreadedAugmenter,
-        # but for now it's fine because the process is cheap
         self.generator = self.config.generator(
             self.config.batch_size, **self.config.generator_kwargs
         )
+        if self.generator.number_of_threads_in_multithreaded > 1:
+            self.generator = MultiThreadedAugmenter(
+                self.generator, None, self.generator.number_of_threads_in_multithreaded
+            )
 
     def _setup_internal(self):
 
@@ -340,7 +370,7 @@ class NeuralProcessExperiment(PytorchExperiment):
                         skip = True
                         break
 
-        except RuntimeError:
+        except RuntimeError as re:
 
             skip = True
 
@@ -392,13 +422,20 @@ class NeuralProcessExperiment(PytorchExperiment):
         if not save and not show:
             return
 
+        if hasattr(self.generator, "x_range"):
+            x_range = self.generator.x_range
+        elif hasattr(self.generator.generator, "x_range"):
+            x_range = self.generator.generator.x_range
+        else:
+            x_range = [-3, 3]
+
         # we select the first batch item for plotting
         context_in = summary["context_in"][0, :, 0].numpy()
-        context_out = summary["context_out"][0, :, 0].numpy()
+        context_out = summary["context_out"][0].numpy()
         target_in = summary["target_in"][0, :, 0].numpy()
-        target_out = summary["target_out"][0, :, 0].numpy()
-        prediction_mu = summary["prediction_mu"][0, :, 0].numpy()
-        prediction_sigma = summary["prediction_sigma"][0, :, 0].numpy()
+        target_out = summary["target_out"][0].numpy()
+        prediction_mu = summary["prediction_mu"][0].numpy()
+        prediction_sigma = summary["prediction_sigma"][0].numpy()
         if "samples" in summary:
             samples = summary["samples"][:, 0, :, 0].numpy().T
 
@@ -411,55 +448,58 @@ class NeuralProcessExperiment(PytorchExperiment):
         if show and self.vlog is not None:
 
             fig = go.Figure()
-            fig.update_xaxes(range=self.generator.x_range)
+            fig.update_xaxes(range=x_range)
             fig.update_yaxes(range=self.config.plot_y_range)
-            fig.add_trace(
-                go.Scatter(
-                    x=target_in,
-                    y=target_out,
-                    mode="lines",
-                    line=dict(color="blue", width=1, dash="dash"),
-                    name="target",
+
+            for c in range(context_out.shape[-1]):
+                fig.add_trace(
+                    go.Scatter(
+                        x=target_in,
+                        y=target_out[..., c],
+                        mode="lines",
+                        line=dict(color="blue", width=1, dash="dash"),
+                        name="target[{}]".format(c),
+                    )
                 )
-            )
-            fig.add_trace(
-                go.Scatter(
-                    x=context_in,
-                    y=context_out,
-                    mode="markers",
-                    marker=dict(color="blue", size=6),
-                    name="context",
+                fig.add_trace(
+                    go.Scatter(
+                        x=context_in,
+                        y=context_out[..., c],
+                        mode="markers",
+                        marker=dict(color="blue", size=6),
+                        name="context[{}]".format(c),
+                    )
                 )
-            )
-            fig.add_trace(
-                go.Scatter(
-                    x=target_in,
-                    y=prediction_mu,
-                    mode="lines",
-                    line=dict(color="black", width=1),
-                    name="prediction",
+                fig.add_trace(
+                    go.Scatter(
+                        x=target_in,
+                        y=prediction_mu[..., c],
+                        mode="lines",
+                        line=dict(color="black", width=1),
+                        name="prediction[{}]".format(c),
+                    )
                 )
-            )
-            fig.add_trace(
-                go.Scatter(
-                    x=target_in,
-                    y=prediction_mu - prediction_sigma,
-                    mode="lines",
-                    line=dict(width=0, color="black"),
-                    name="- 1 sigma",
+                fig.add_trace(
+                    go.Scatter(
+                        x=target_in,
+                        y=prediction_mu[..., c] - prediction_sigma[..., c],
+                        mode="lines",
+                        line=dict(width=0, color="black"),
+                        name="- 1 sigma[{}]".format(c),
+                    )
                 )
-            )
-            fig.add_trace(
-                go.Scatter(
-                    x=target_in,
-                    y=prediction_mu + prediction_sigma,
-                    mode="lines",
-                    fill="tonexty",
-                    fillcolor="rgba(0,0,0,0.1)",
-                    line=dict(width=0, color="black"),
-                    name="+ 1 sigma",
+                fig.add_trace(
+                    go.Scatter(
+                        x=target_in,
+                        y=prediction_mu[..., c] + prediction_sigma[..., c],
+                        mode="lines",
+                        fill="tonexty",
+                        fillcolor="rgba(0,0,0,0.1)",
+                        line=dict(width=0, color="black"),
+                        name="+ 1 sigma[{}]".format(c),
+                    )
                 )
-            )
+            # samples will only be shown for first channel!
             if "samples" in summary:
                 for s in range(samples.shape[1]):
                     fig.add_trace(
@@ -485,14 +525,15 @@ class NeuralProcessExperiment(PytorchExperiment):
             ax.plot(target_in, target_out, "b--", lw=1)
             ax.plot(context_in, context_out, "bo", ms=6)
             ax.plot(target_in, prediction_mu, color="black")
-            ax.axis([*self.generator.x_range, *self.config.plot_y_range])
-            ax.fill_between(
-                target_in,
-                prediction_mu - prediction_sigma,
-                prediction_mu + prediction_sigma,
-                color="black",
-                alpha=0.2,
-            )
+            ax.axis([*x_range, *self.config.plot_y_range])
+            for c in range(context_out.shape[-1]):
+                ax.fill_between(
+                    target_in,
+                    prediction_mu[..., c] - prediction_sigma[..., c],
+                    prediction_mu[..., c] + prediction_sigma[..., c],
+                    color="black",
+                    alpha=0.2,
+                )
             if "samples" in summary:
                 ax.plot(target_in, samples, color="green", alpha=0.2)
                 self.elog.show_matplot_plt(
@@ -560,7 +601,7 @@ class NeuralProcessExperiment(PytorchExperiment):
         ) as e:  # if models can't sample
             pass
         except RuntimeError as e:  # numerical instability in GP cholesky
-            print("Skipped sampling because of numerical instability.")
+            self.print("Skipped sampling because of numerical instability.")
             pass
         except Exception as e:
             raise e
@@ -573,13 +614,18 @@ class NeuralProcessExperiment(PytorchExperiment):
 
         with torch.no_grad():
 
-            self.generator.batch_size = 1
-            self.generator.num_target = 100
-            self.generator.num_context = 10
-            batch = next(self.generator)
-            self.generator.batch_size = self.config.batch_size
-            self.generator.num_target = self.config.generator_kwargs.num_target
-            self.generator.num_context = self.config.generator_kwargs.num_context
+            if isinstance(self.generator, MultiThreadedAugmenter):
+                generator = self.generator.generator
+            else:
+                generator = self.generator
+
+            generator.batch_size = 1
+            generator.num_target = 100
+            generator.num_context = 10
+            batch = next(generator)
+            generator.batch_size = self.config.batch_size
+            generator.num_target = self.config.generator_kwargs.num_target
+            generator.num_context = self.config.generator_kwargs.num_context
 
             context_in = batch["context_in"].to(self.config.device)
             context_out = batch["context_out"].to(self.config.device)
@@ -630,7 +676,7 @@ class NeuralProcessExperiment(PytorchExperiment):
 
         for group in self.optimizer.param_groups:
             if group["lr"] < self.config.lr_min:
-                print("Learning rate too small, stopping...")
+                self.print("Learning rate too small, stopping...")
                 self.stop()
 
     def test(self):
@@ -646,10 +692,15 @@ class NeuralProcessExperiment(PytorchExperiment):
 
     def test_single(self):
 
+        if isinstance(self.generator, MultiThreadedAugmenter):
+            generator = self.generator.generator
+        else:
+            generator = self.generator
+
         # for this evaluation we want to separate target and context entirely
-        self.generator.target_include_context = False
-        self.generator.batch_size = self.config.test_batch_size
-        self.generator.num_target = self.config.test_num_target_single
+        generator.target_include_context = False
+        generator.batch_size = self.config.test_batch_size
+        generator.num_target = self.config.test_num_target_single
         self.model.eval()
 
         info = {}
@@ -678,13 +729,11 @@ class NeuralProcessExperiment(PytorchExperiment):
                     with torch.no_grad():
 
                         if num_context == "random":
-                            self.generator.num_context = (
-                                self.config.test_num_context_random
-                            )
+                            generator.num_context = self.config.test_num_context_random
                         else:
-                            self.generator.num_context = int(num_context)
+                            generator.num_context = int(num_context)
 
-                        batch = next(self.generator)
+                        batch = next(generator)
                         context_in = batch["context_in"].to(self.config.device)
                         context_out = batch["context_out"].to(self.config.device)
                         target_in = batch["target_in"].to(self.config.device)
@@ -847,18 +896,27 @@ class NeuralProcessExperiment(PytorchExperiment):
 
     def test_distribution(self):
 
+        if isinstance(self.generator, MultiThreadedAugmenter):
+            generator = self.generator.generator
+        else:
+            generator = self.generator
+
         # For this evaluation we want to always have the same target x values,
         # so we need to include the context and use linspace=True.
         # Wasserstein calculation is pretty expensive, so
         # we use fewer samples than in test_single. Samples in a batch
         # have the same x values for the context, which is fine for large
         # numbers of test cases, but here we reduce correlation by working
-        # with batch_size=1
-        self.generator.target_include_context = True
-        self.generator.target_fixed_size = True
-        self.generator.linspace = True
-        self.generator.num_target = self.config.test_num_target_distribution
-        self.generator.batch_size = 1
+        # with batch_size=1 (except for Lotka-Volterra, because that generator
+        # is VERY slow...)
+        generator.target_include_context = True
+        generator.target_fixed_size = True
+        generator.linspace = True
+        generator.num_target = self.config.test_num_target_distribution
+        if not isinstance(generator, LotkaVolterraGenerator):
+            generator.batch_size = 1
+        else:
+            generator.batch_size = 32
         self.model.eval()
 
         info = {}
@@ -878,18 +936,20 @@ class NeuralProcessExperiment(PytorchExperiment):
             predictions = []
 
             if num_context == "random":
-                self.generator.num_context = self.config.test_num_context_random
+                generator.num_context = self.config.test_num_context_random
             else:
-                self.generator.num_context = int(num_context)
+                generator.num_context = int(num_context)
 
             # fill the gt_samples and predictions lists, so we can calculate
             # metrics after.
             with torch.no_grad():
                 for b in range(
-                    self.config.test_batches_distribution * self.config.test_batch_size
+                    self.config.test_batches_distribution
+                    * self.config.test_batch_size
+                    // generator.batch_size
                 ):
 
-                    batch = next(self.generator)
+                    batch = next(generator)
                     context_in = batch["context_in"].to(self.config.device)
                     context_out = batch["context_out"].to(self.config.device)
                     target_in = batch["target_in"].to(self.config.device)
@@ -931,16 +991,21 @@ class NeuralProcessExperiment(PytorchExperiment):
 
     def test_diversity(self):
 
+        if isinstance(self.generator, MultiThreadedAugmenter):
+            generator = self.generator.generator
+        else:
+            generator = self.generator
+
         # Can't sample from regular ConvCNP
         if isinstance(self.model, ConvCNP) and not self.model.use_gp:
             return
         # Can't construct oracle for non-GP generators
-        if not isinstance(self.generator, GaussianProcessGenerator):
+        if not isinstance(generator, GaussianProcessGenerator):
             return
 
-        self.generator.target_include_context = False
-        self.generator.num_target = self.config.test_num_target_diversity
-        self.generator.batch_size = self.config.test_batch_size
+        generator.target_include_context = False
+        generator.num_target = self.config.test_num_target_diversity
+        generator.batch_size = self.config.test_batch_size
         self.model.eval()
 
         info = {}
@@ -960,16 +1025,16 @@ class NeuralProcessExperiment(PytorchExperiment):
                 with torch.no_grad():
 
                     if num_context == "random":
-                        self.generator.num_context = self.config.test_num_context_random
+                        generator.num_context = self.config.test_num_context_random
                     else:
-                        self.generator.num_context = int(num_context)
+                        generator.num_context = int(num_context)
 
                     # GP can occasionally because of numerical instability,
                     # so we need a small loop that accounts for this
                     num_failures = 0
                     while num_failures < 1000:
 
-                        batch = next(self.generator)
+                        batch = next(generator)
                         context_in = batch["context_in"].to(self.config.device)
                         context_out = batch["context_out"].to(self.config.device)
                         target_in = batch["target_in"].to(self.config.device)
@@ -1005,14 +1070,14 @@ class NeuralProcessExperiment(PytorchExperiment):
                                 x_train = context_in[b].cpu().numpy()  # (N, 1)
                                 y_train = context_out[b].cpu().numpy()  # (N, 1)
                                 x = target_in[b].cpu().numpy()  # (M, 1)
-                                K = self.generator.kernel(x_train, x_train)
+                                K = generator.kernel(x_train, x_train)
                                 L = np.linalg.cholesky(K + 1e-6 * np.eye(len(x_train)))
-                                K_s = self.generator.kernel(x_train, x)
+                                K_s = generator.kernel(x_train, x)
                                 L_k = np.linalg.solve(L, K_s)
                                 mu = np.dot(L_k.T, np.linalg.solve(L, y_train)).reshape(
                                     -1
                                 )
-                                K_ss = self.generator.kernel(x, x)
+                                K_ss = generator.kernel(x, x)
                                 K_ss -= np.dot(L_k.T, L_k)
                                 L_ss = np.linalg.cholesky(K_ss + 1e-6 * np.eye(len(x)))
                                 samp = np.random.normal(

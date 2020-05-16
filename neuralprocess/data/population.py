@@ -27,6 +27,7 @@ class LotkaVolterraGenerator(FunctionGenerator):
         max_time=100.0,
         max_population=500,
         super_sample=4.0,
+        min_batch_size=4,
         **kwargs,
     ):
 
@@ -43,6 +44,7 @@ class LotkaVolterraGenerator(FunctionGenerator):
         self.max_time = max_time
         self.max_population = max_population
         self.super_sample = super_sample
+        self.min_batch_size = min_batch_size
 
     @staticmethod
     def generate_instance(
@@ -125,40 +127,25 @@ class LotkaVolterraGenerator(FunctionGenerator):
         if self.target_includes_context and self.target_fixed_size:
             num_target -= num_context
 
+        bs = max(self.min_batch_size, int(self.super_sample * self.batch_size))
+
         # draw process parameters
         if hasattr(self.predator_init, "__iter__"):
-            predator = np.random.randint(
-                *self.predator_init,
-                size=(int(self.super_sample * self.batch_size), 1, 1),
-            )
+            predator = np.random.randint(*self.predator_init, size=(bs, 1, 1),)
         else:
-            predator = (
-                np.ones((int(self.super_sample * self.batch_size), 1, 1))
-                * self.predator_init
-            )
+            predator = np.ones((bs, 1, 1)) * self.predator_init
 
         if hasattr(self.prey_init, "__iter__"):
-            prey = np.random.randint(
-                *self.prey_init, size=(int(self.super_sample * self.batch_size), 1, 1)
-            )
+            prey = np.random.randint(*self.prey_init, size=(bs, 1, 1))
         else:
-            prey = (
-                np.ones((int(self.super_sample * self.batch_size), 1, 1))
-                * self.prey_init
-            )
+            prey = np.ones((bs, 1, 1)) * self.prey_init
 
         rates = []
         for rate in (self.rate0, self.rate1, self.rate2, self.rate3):
             if hasattr(rate, "__iter__"):
-                rates.append(
-                    np.random.uniform(
-                        *rate, size=(int(self.super_sample * self.batch_size), 1, 1)
-                    )
-                )
+                rates.append(np.random.uniform(*rate, size=(bs, 1, 1)))
             else:
-                rates.append(
-                    np.ones((int(self.super_sample * self.batch_size), 1, 1)) * rate
-                )
+                rates.append(np.ones((bs, 1, 1)) * rate)
         rates = np.concatenate(rates, 1)
 
         predator_batch = [predator.copy()]
@@ -189,9 +176,7 @@ class LotkaVolterraGenerator(FunctionGenerator):
             # corresponding to the possible events
             current_rates = current_rates / total_rates
             current_rates = np.cumsum(current_rates, 1)
-            positions = np.random.uniform(
-                size=(int(self.super_sample * self.batch_size), 1, 1)
-            )
+            positions = np.random.uniform(size=(bs, 1, 1))
             predator[positions < current_rates[:, 0:1]] += 1
             predator[
                 np.logical_and(
