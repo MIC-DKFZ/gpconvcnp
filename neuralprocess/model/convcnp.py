@@ -289,7 +289,7 @@ class GPConvDeepSet(ConvDeepSet):
             )
 
         if gp_lambda is None:
-            gp_lambda = self.gp_lambda
+            gp_lambda = self.sigma_fn(self.gp_lambda)
         elif not torch.is_tensor(gp_lambda):
             gp_lambda = torch.tensor(gp_lambda)
         gp_lambda = gp_lambda.type_as(target_in)

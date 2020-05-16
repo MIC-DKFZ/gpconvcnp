@@ -163,7 +163,7 @@ class LotkaVolterraGenerator(FunctionGenerator):
 
         predator_batch = [predator.copy()]
         prey_batch = [prey.copy()]
-        time_batch = [np.zeros_like(predator)]
+        time_batch = [np.zeros_like(predator).astype(np.float32)]
         time = time_batch[-1].copy()
 
         for i in range(self.sequence_length - 1):
