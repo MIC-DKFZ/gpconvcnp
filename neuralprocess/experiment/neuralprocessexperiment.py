@@ -162,11 +162,9 @@ def make_defaults(representation_channels=128):
     )
 
     GPCONVCNP = Config(  # Requires CONVCNP
-        model_kwargs=dict(use_gp=True, use_density_norm=False)
-    )
-
-    GPPOSTERIOR = Config(  # Requires GPCONVCNP
-        model_kwargs=dict(gp_sample_from_posterior=True)
+        model_kwargs=dict(
+            use_gp=True, use_density_norm=False, gp_sample_from_posterior=True
+        )
     )
 
     LEARNNOISE = Config(  # Requires GPCONVCNP
