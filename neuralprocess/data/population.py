@@ -23,11 +23,12 @@ class LotkaVolterraGenerator(FunctionGenerator):
         rate2=1.0,
         rate3=0.01,
         sequence_length=10000,
-        rescale=0.01,
+        x_rescale=0.1,
+        y_rescale=0.01,
         max_time=100.0,
         max_population=500,
         super_sample=4.0,
-        min_batch_size=4,
+        min_batch_size=16,
         **kwargs,
     ):
 
@@ -40,7 +41,8 @@ class LotkaVolterraGenerator(FunctionGenerator):
         self.rate2 = rate2
         self.rate3 = rate3
         self.sequence_length = sequence_length
-        self.rescale = rescale
+        self.x_rescale = x_rescale
+        self.y_rescale = y_rescale
         self.max_time = max_time
         self.max_population = max_population
         self.super_sample = super_sample
@@ -204,8 +206,9 @@ class LotkaVolterraGenerator(FunctionGenerator):
         predator_batch = np.concatenate(predator_batch, 1).astype(np.float32)
         prey_batch = np.concatenate(prey_batch, 1).astype(np.float32)
         time_batch = np.concatenate(time_batch, 1).astype(np.float32)
-        predator_batch *= self.rescale
-        prey_batch *= self.rescale
+        predator_batch *= self.y_rescale
+        prey_batch *= self.y_rescale
+        time_batch *= self.x_rescale
 
         # filter out bad examples
         time_too_long = np.unique(np.where(time_batch > self.max_time)[0])

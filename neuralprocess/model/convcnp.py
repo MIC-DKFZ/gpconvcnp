@@ -354,6 +354,8 @@ class ConvCNP(nn.Module):
     def __init__(
         self,
         conv_net,
+        in_channels=1,
+        out_channels=1,
         use_gp=False,
         learn_length_scale=True,
         init_length_scale=0.1,
@@ -384,7 +386,7 @@ class ConvCNP(nn.Module):
 
         if use_gp:
             self.input_interpolation = GPConvDeepSet(
-                in_channels=1,
+                in_channels=out_channels,
                 out_channels=self.conv_net.in_channels,
                 learn_length_scale=learn_length_scale,
                 init_length_scale=init_length_scale,
@@ -397,7 +399,7 @@ class ConvCNP(nn.Module):
             )
         else:
             self.input_interpolation = ConvDeepSet(
-                in_channels=1,
+                in_channels=out_channels,
                 out_channels=self.conv_net.in_channels,
                 learn_length_scale=learn_length_scale,
                 init_length_scale=init_length_scale,
@@ -407,7 +409,7 @@ class ConvCNP(nn.Module):
 
         self.output_interpolation_mean = ConvDeepSet(
             in_channels=self.conv_net.out_channels,
-            out_channels=1,
+            out_channels=out_channels,
             learn_length_scale=learn_length_scale,
             init_length_scale=init_length_scale,
             use_density=False,
@@ -415,7 +417,7 @@ class ConvCNP(nn.Module):
 
         self.output_interpolation_sigma = ConvDeepSet(
             in_channels=self.conv_net.out_channels,
-            out_channels=1,
+            out_channels=out_channels,
             learn_length_scale=learn_length_scale,
             init_length_scale=init_length_scale,
             use_density=False,

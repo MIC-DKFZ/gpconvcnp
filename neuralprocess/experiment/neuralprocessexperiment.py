@@ -100,7 +100,6 @@ def make_defaults(representation_channels=128):
         scheduler=optim.lr_scheduler.StepLR,
         scheduler_kwargs=dict(step_size=1000, gamma=0.995),
         scheduler_step_train=True,
-        clip_loss=1e3,  # loss is clamped from above to this value
         clip_grad=1e3,  # argument for nn.clip_grad_norm
         lr_warmup=0,  # linearly increase LR from 0 during first lr_warmup epochs
         # Logging
@@ -140,6 +139,8 @@ def make_defaults(representation_channels=128):
     CONVCNP = Config(
         model=ConvCNP,
         model_kwargs=dict(
+            in_channels=1,
+            out_channels=1,
             use_gp=False,
             learn_length_scale=True,
             init_length_scale=0.1,
@@ -192,6 +193,35 @@ def make_defaults(representation_channels=128):
         ),
     )
 
+    LOTKAVOLTERRASTATIC = Config(
+        generator=LotkaVolterraGenerator,
+        generator_kwargs=dict(
+            num_context=[20, 80],
+            num_target=[70, 150],
+            number_of_threads_in_multithreaded=8,
+            predator_init=50,
+            prey_init=100,
+            rate0=0.01,
+            rate1=1.0,
+            rate2=1.0,
+            rate3=0.01,
+            sequence_length=10000,
+            y_rescale=0.01,
+            x_rescale=0.1,
+            max_time=100.0,
+            max_population=500,
+            super_sample=5,
+            x_range=[0, 5],
+        ),
+        model_kwargs=dict(out_channels=2),
+        modules_kwargs=dict(
+            prior_encoder=dict(in_channels=3),
+            decoder=dict(out_channels=4),
+            deterministic_encoder=dict(in_channels=3),
+        ),
+        plot_y_range=[0, 3],
+    )
+
     LOTKAVOLTERRA = Config(
         generator=LotkaVolterraGenerator,
         generator_kwargs=dict(
@@ -205,14 +235,18 @@ def make_defaults(representation_channels=128):
             rate2=[0.5, 0.8],
             rate3=[0.005, 0.01],
             sequence_length=10000,
-            rescale=0.01,
+            y_rescale=0.01,
+            x_rescale=0.1,
             max_time=100.0,
             max_population=500,
             super_sample=1.5,
-            x_range=[0, 50],
+            x_range=[0, 5],
         ),
+        model_kwargs=dict(out_channels=2),
         modules_kwargs=dict(
-            prior_encoder=dict(in_channels=3), decoder=dict(out_channels=4)
+            prior_encoder=dict(in_channels=3),
+            decoder=dict(out_channels=4),
+            deterministic_encoder=dict(in_channels=3),
         ),
         plot_y_range=[0, 3],
     )
@@ -242,6 +276,7 @@ def make_defaults(representation_channels=128):
         "MATERNKERNEL": MATERNKERNEL,
         "WEAKLYPERIODICKERNEL": WEAKLYPERIODICKERNEL,
         "STEP": STEP,
+        "LOTKAVOLTERRASTATIC": LOTKAVOLTERRASTATIC,
         "LOTKAVOLTERRA": LOTKAVOLTERRA,
         "DETERMINISTICENCODER": DETERMINISTICENCODER,
         "LONG": LONG,
@@ -335,7 +370,7 @@ class NeuralProcessExperiment(PytorchExperiment):
         try:
 
             prediction = self.model(
-                context_in, context_out, target_in, target_out, store_rep=False
+                context_in, context_out, target_in, target_out, store_rep=False,
             )
             prediction = tensor_to_loc_scale(
                 prediction,
@@ -343,14 +378,12 @@ class NeuralProcessExperiment(PytorchExperiment):
                 logvar_transform=self.config.output_transform_logvar,
                 axis=2,
             )
-            batch["prediction_mu"] = prediction.loc.detach().cpu()
-            batch["prediction_sigma"] = prediction.scale.detach().cpu()
+            batch["prediction_mu"] = prediction.loc.detach().cpu().repeat(1, 1, 2)
+            batch["prediction_sigma"] = prediction.scale.detach().cpu().repeat(1, 1, 2)
 
             # loss
             loss_recon = -prediction.log_prob(target_out)
             loss_recon = loss_recon.mean(0).sum()  # batch mean
-            if self.config.clip_loss > 0:
-                loss_recon = torch.clamp(loss_recon, -1e9, self.config.clip_loss)
             loss_total = loss_recon
             if hasattr(self.model, "prior"):
                 loss_latent = distributions.kl_divergence(
