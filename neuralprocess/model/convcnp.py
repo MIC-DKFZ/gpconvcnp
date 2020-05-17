@@ -181,7 +181,7 @@ class GPConvDeepSet(ConvDeepSet):
 
         Args:
             context_in (torch.tensor): Inputs of observations, shape (B, N, 1).
-            context_out (torch.tensor): Outputs of observations, shape (B, N, 1).
+            context_out (torch.tensor): Outputs of observations, shape (B, N, Cin).
             target_in (torch.tensor): Inputs to evaluate function at, shape (B, M, 1).
             store_rep (bool): Store computations necessary for sampling.
 
@@ -219,7 +219,7 @@ class GPConvDeepSet(ConvDeepSet):
         L_k, _ = torch.solve(K_s, L)  # (B, N, M)
 
         # Compute mean prediction
-        # Shape (B, M, 1)
+        # Shape (B, M, Cin)
         output = torch.bmm(L_k.transpose(1, 2), torch.solve(context_out, L)[0])
 
         # Sample from the posterior if desired
@@ -232,7 +232,7 @@ class GPConvDeepSet(ConvDeepSet):
             L_ss = gpytorch.utils.cholesky.psd_safe_cholesky(
                 K_ss - torch.bmm(L_k.transpose(1, 2), L_k)
             )  # (B, M, M)
-            sample = torch.randn(output.shape[0], L_ss.shape[-1], 1)
+            sample = torch.randn(output.shape[0], L_ss.shape[-1], output.shape[2])
             sample = sample.to(device=L_ss.device)
             self.gp_lambda = self.gp_lambda.type_as(sample)
             sample = self.sigma_fn(self.gp_lambda) * torch.bmm(
