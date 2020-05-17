@@ -162,10 +162,10 @@ def make_defaults(representation_channels=128):
     )
 
     GPCONVCNP = Config(  # Requires CONVCNP
-        model_kwargs=dict(
-            use_gp=True, use_density_norm=False, gp_sample_from_posterior=True
-        )
+        model_kwargs=dict(use_gp=True, use_density_norm=False)
     )
+
+    NOSAMPLE = Config(model_kwargs=dict(gp_sample_from_posterior=False))
 
     LEARNNOISE = Config(  # Requires GPCONVCNP
         model_kwargs=dict(gp_noise_learnable=True, gp_noise_init=-2.0,)
@@ -268,7 +268,7 @@ def make_defaults(representation_channels=128):
         "ATTENTION": ATTENTION,
         "CONVCNP": CONVCNP,
         "GPCONVCNP": GPCONVCNP,
-        "GPPOSTERIOR": GPPOSTERIOR,
+        "NOSAMPLE": NOSAMPLE,
         "LEARNNOISE": LEARNNOISE,
         "LEARNLAMBDA": LEARNLAMBDA,
         "MATERNKERNEL": MATERNKERNEL,

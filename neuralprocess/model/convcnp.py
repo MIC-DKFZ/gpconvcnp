@@ -152,7 +152,7 @@ class GPConvDeepSet(ConvDeepSet):
 
     def __init__(
         self,
-        gp_sample_from_posterior=False,
+        gp_sample_from_posterior=True,
         gp_lambda_learnable=False,
         gp_noise_learnable=False,
         gp_noise_init=-14.0,
@@ -364,7 +364,7 @@ class ConvCNP(nn.Module):
         points_per_unit=20,
         range_padding=0.1,
         grid_divisible_by=64,
-        gp_sample_from_posterior=False,
+        gp_sample_from_posterior=True,
         gp_lambda_learnable=False,
         gp_noise_learnable=False,
         gp_noise_init=-14.0,
