@@ -34,6 +34,7 @@ from neuralprocess.data import (
     WeaklyPeriodicKernel,
     StepFunctionGenerator,
     LotkaVolterraGenerator,
+    FourierSeriesGenerator,
 )
 from neuralprocess.data.gp import GaussianKernel, WeaklyPeriodicKernel, Matern52Kernel
 from neuralprocess.model import (
@@ -191,16 +192,38 @@ def make_defaults(representation_channels=128):
         ),
     )
 
+    FOURIER = Config(
+        generator=FourierSeriesGenerator,
+        generator_kwargs=dict(
+            series_length=[10, 20],
+            amplitude=[-1, 1],
+            phase=[-1, 1],
+            bias=[-1, 1],
+            frequency_scale=1.0,
+        ),
+    )
+
+    FOURIERSINGLE = Config(
+        generator=FourierSeriesGenerator,
+        generator_kwargs=dict(
+            series_length=[1, 2],
+            amplitude=[-2, 2],
+            phase=[-1, 1],
+            bias=[-1, 1],
+            frequency_scale=[0.1, 2.0],
+        ),
+    )
+
     LOTKAVOLTERRASTATIC = Config(
         generator=LotkaVolterraGenerator,
         generator_kwargs=dict(
             num_context=[20, 80],
             num_target=[70, 150],
             number_of_threads_in_multithreaded=8,
-            predator_init=50,
-            prey_init=100,
+            predator_init=20,
+            prey_init=30,
             rate0=0.01,
-            rate1=1.0,
+            rate1=0.5,
             rate2=1.0,
             rate3=0.01,
             sequence_length=10000,
@@ -208,7 +231,7 @@ def make_defaults(representation_channels=128):
             x_rescale=0.1,
             max_time=100.0,
             max_population=500,
-            super_sample=5,
+            super_sample=10,
             x_range=[0, 5],
         ),
         model_kwargs=dict(out_channels=2),
@@ -264,6 +287,8 @@ def make_defaults(representation_channels=128):
 
     LONG = Config(n_epochs=1200000, scheduler_kwargs=dict(step_size=2000))
 
+    SHORT = Config(n_epochs=300000)
+
     MODS = {
         "ATTENTION": ATTENTION,
         "CONVCNP": CONVCNP,
@@ -276,8 +301,11 @@ def make_defaults(representation_channels=128):
         "STEP": STEP,
         "LOTKAVOLTERRASTATIC": LOTKAVOLTERRASTATIC,
         "LOTKAVOLTERRA": LOTKAVOLTERRA,
+        "FOURIER": FOURIER,
+        "FOURIERSINGLE": FOURIERSINGLE,
         "DETERMINISTICENCODER": DETERMINISTICENCODER,
         "LONG": LONG,
+        "SHORT": SHORT,
     }
 
     return {"DEFAULTS": DEFAULTS}, MODS
