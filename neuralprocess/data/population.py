@@ -1,7 +1,13 @@
+import os
 import numpy as np
+import pandas as pd
 import torch
 
 from neuralprocess.data.base import FunctionGenerator
+
+
+def get_lynx_hare_data():
+    return pd.read_csv(os.path.join(os.path.dirname(__file__), "lynxhare.csv"))
 
 
 class LotkaVolterraGenerator(FunctionGenerator):

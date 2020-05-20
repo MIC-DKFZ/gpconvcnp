@@ -787,11 +787,8 @@ class NeuralProcessExperiment(PytorchExperiment):
                         predictive_error = torch.pow(prediction.loc - target_out, 2)
                         predictive_error = predictive_error.cpu().numpy()
                         predictive_error = np.nanmean(predictive_error, axis=(1, 2))
-                        if (
-                            isinstance(
-                                self.model, (NeuralProcess, AttentiveNeuralProcess)
-                            )
-                            or self.model.use_gp
+                        if isinstance(
+                            self.model, (NeuralProcess, AttentiveNeuralProcess)
                         ):
                             predictive_ll = []
                             while len(predictive_ll) < self.config.test_latent_samples:
@@ -810,7 +807,7 @@ class NeuralProcessExperiment(PytorchExperiment):
                             predictive_ll = []
                             for i in range(10):
                                 prediction = self.model.sample(
-                                    context_in, self.config.test_latent_samples // 10
+                                    target_in, self.config.test_latent_samples // 10
                                 ).cpu()
                                 prediction = tensor_to_loc_scale(
                                     prediction,
