@@ -776,10 +776,10 @@ class NeuralProcessExperiment(PytorchExperiment):
 
         scores = []
 
-        while len(scores) < self.config.test_batches_single:
+        # Catch possible RuntimeError from GP
+        fail_counter = 0
+        while len(scores) < self.config.test_batches_single and fail_counter < 100:
 
-            # Catch possible RuntimeError from GP
-            fail_counter = 0
             try:
 
                 scores_batch = []
@@ -812,6 +812,7 @@ class NeuralProcessExperiment(PytorchExperiment):
                             logvar_transform=self.config.output_transform_logvar,
                             axis=2,
                         )
+
                         predictive_error = torch.pow(prediction.loc - target_out, 2)
                         predictive_error = predictive_error.cpu().numpy()
                         predictive_error = np.nanmean(predictive_error, axis=(1, 2))
@@ -833,9 +834,9 @@ class NeuralProcessExperiment(PytorchExperiment):
                             predictive_ll = np.nanmean(predictive_ll, axis=0)
                         elif self.model.use_gp:
                             predictive_ll = []
-                            for i in range(10):
+                            for i in range(20):
                                 prediction = self.model.sample(
-                                    target_in, self.config.test_latent_samples // 10
+                                    target_in, self.config.test_latent_samples // 20
                                 ).cpu()
                                 prediction = tensor_to_loc_scale(
                                     prediction,
@@ -899,9 +900,9 @@ class NeuralProcessExperiment(PytorchExperiment):
                             reconstruction_ll = np.nanmean(reconstruction_ll, axis=0)
                         elif self.model.use_gp:
                             reconstruction_ll = []
-                            for i in range(10):
+                            for i in range(20):
                                 reconstruction = self.model.sample(
-                                    context_in, self.config.test_latent_samples // 10
+                                    context_in, self.config.test_latent_samples // 20
                                 ).cpu()
                                 reconstruction = tensor_to_loc_scale(
                                     reconstruction,
