@@ -3,7 +3,6 @@ import torch
 from batchgenerators.dataloading import SlimDataLoaderBase
 
 
-
 class FunctionGenerator(SlimDataLoaderBase):
     """
     Base class for function generators. Inherit from this and implement
@@ -35,20 +34,23 @@ class FunctionGenerator(SlimDataLoaderBase):
 
     """
 
-    def __init__(self,
-                 batch_size,
-                 x_range=(-3, 3),
-                 num_context=(3, 100),
-                 num_target=(3, 100),
-                 target_larger_than_context=True,
-                 target_includes_context=True,
-                 target_fixed_size=False,
-                 output_noise=0.,
-                 linspace=False,
-                 number_of_threads_in_multithreaded=1,
-                 **kwargs):
+    def __init__(
+        self,
+        batch_size,
+        x_range=(-3, 3),
+        num_context=(3, 100),
+        num_target=(3, 100),
+        target_larger_than_context=True,
+        target_includes_context=True,
+        target_fixed_size=False,
+        output_noise=0.0,
+        linspace=False,
+        number_of_threads_in_multithreaded=1,
+        data=None,
+        **kwargs
+    ):
 
-        super().__init__(None, batch_size, number_of_threads_in_multithreaded)
+        super().__init__(data, batch_size, number_of_threads_in_multithreaded)
 
         self.x_range = x_range
         self.num_context = num_context
@@ -72,7 +74,8 @@ class FunctionGenerator(SlimDataLoaderBase):
                 num_target = np.random.randint(*self.num_target)
             else:
                 num_target = np.random.randint(
-                    max(num_context, self.num_target[0]), self.num_target[1])
+                    max(num_context, self.num_target[0]), self.num_target[1]
+                )
         else:
             num_target = self.num_target
 
@@ -87,7 +90,9 @@ class FunctionGenerator(SlimDataLoaderBase):
                     x = np.linspace(*self.x_range, num_context + num_target)
                     x = x.reshape(1, -1, 1)
                 else:
-                    x = np.random.uniform(*self.x_range, size=(1, num_context + num_target, 1))
+                    x = np.random.uniform(
+                        *self.x_range, size=(1, num_context + num_target, 1)
+                    )
                     x.sort(1)
                 x = x.astype(np.float32)
 
@@ -103,9 +108,9 @@ class FunctionGenerator(SlimDataLoaderBase):
             raise e
 
         x = np.repeat(x, self.batch_size, 0)
-        rand_indices = np.random.choice(np.arange(num_context + num_target),
-                                        num_context,
-                                        replace=False)
+        rand_indices = np.random.choice(
+            np.arange(num_context + num_target), num_context, replace=False
+        )
         rand_indices.sort()
         context_in = x[:, rand_indices, :]
         context_out = y[:, rand_indices, :]
@@ -117,18 +122,18 @@ class FunctionGenerator(SlimDataLoaderBase):
             target_out = np.delete(y, rand_indices, 1)
 
         if self.output_noise > 0:
-            context_out += np.random.uniform(-self.output_noise,
-                                             self.output_noise,
-                                             size=context_out.shape)
+            context_out += np.random.uniform(
+                -self.output_noise, self.output_noise, size=context_out.shape
+            )
 
         return dict(
             context_in=torch.from_numpy(context_in),
             context_out=torch.from_numpy(context_out),
             target_in=torch.from_numpy(target_in),
-            target_out=torch.from_numpy(target_out)
+            target_out=torch.from_numpy(target_out),
         )
 
     def apply(self, x):
         """This method should generate the y values for a given x."""
-        
+
         raise NotImplementedError

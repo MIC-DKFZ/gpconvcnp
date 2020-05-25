@@ -35,6 +35,7 @@ from neuralprocess.data import (
     StepFunctionGenerator,
     LotkaVolterraGenerator,
     FourierSeriesGenerator,
+    TemperatureGenerator,
 )
 from neuralprocess.data.gp import GaussianKernel, WeaklyPeriodicKernel, Matern52Kernel
 from neuralprocess.model import (
@@ -125,7 +126,9 @@ def make_defaults(representation_channels=128):
         test_diversity=True,
     )
 
-    ATTENTION = Config(  # you also need to set DETERMINISTICENCODER for this
+    MODS = {}
+
+    MODS["ATTENTION"] = Config(  # you also need to set DETERMINISTICENCODER for this
         model=AttentiveNeuralProcess,
         model_kwargs=dict(
             project_to=128,  # embed_dim in attention mechanism
@@ -137,7 +140,7 @@ def make_defaults(representation_channels=128):
         modules_kwargs=dict(attention=dict(embed_dim=128, num_heads=8)),
     )
 
-    CONVCNP = Config(
+    MODS["CONVCNP"] = Config(
         model=ConvCNP,
         model_kwargs=dict(
             in_channels=1,
@@ -162,27 +165,27 @@ def make_defaults(representation_channels=128):
         ),
     )
 
-    GPCONVCNP = Config(  # Requires CONVCNP
+    MODS["GPCONVCNP"] = Config(  # Requires CONVCNP
         model_kwargs=dict(use_gp=True, use_density_norm=False)
     )
 
-    NOSAMPLE = Config(model_kwargs=dict(gp_sample_from_posterior=False))
+    MODS["NOSAMPLE"] = Config(model_kwargs=dict(gp_sample_from_posterior=False))
 
-    LEARNNOISE = Config(  # Requires GPCONVCNP
+    MODS["LEARNNOISE"] = Config(  # Requires GPCONVCNP
         model_kwargs=dict(gp_noise_learnable=True, gp_noise_init=-2.0,)
     )
 
-    LEARNLAMBDA = Config(  # Requires GPCONVCNP
+    MODS["LEARNLAMBDA"] = Config(  # Requires GPCONVCNP
         model_kwargs=dict(gp_lambda_learnable=True)
     )
 
-    MATERNKERNEL = Config(generator_kwargs=dict(kernel_type=Matern52Kernel))
+    MODS["MATERNKERNEL"] = Config(generator_kwargs=dict(kernel_type=Matern52Kernel))
 
-    WEAKLYPERIODICKERNEL = Config(
+    MODS["WEAKLYPERIODICKERNEL"] = Config(
         generator_kwargs=dict(kernel_type=WeaklyPeriodicKernel)
     )
 
-    STEP = Config(
+    MODS["STEP"] = Config(
         generator=StepFunctionGenerator,
         generator_kwargs=dict(
             y_range=[-3, 3],
@@ -192,7 +195,7 @@ def make_defaults(representation_channels=128):
         ),
     )
 
-    FOURIER = Config(
+    MODS["FOURIER"] = Config(
         generator=FourierSeriesGenerator,
         generator_kwargs=dict(
             series_length=[10, 20],
@@ -203,7 +206,7 @@ def make_defaults(representation_channels=128):
         ),
     )
 
-    FOURIERSINGLE = Config(
+    MODS["FOURIERSINGLE"] = Config(
         generator=FourierSeriesGenerator,
         generator_kwargs=dict(
             series_length=[1, 2],
@@ -214,7 +217,7 @@ def make_defaults(representation_channels=128):
         ),
     )
 
-    LOTKAVOLTERRASTATIC = Config(
+    MODS["LOTKAVOLTERRASTATIC"] = Config(
         generator=LotkaVolterraGenerator,
         generator_kwargs=dict(
             num_context=[20, 80],
@@ -243,7 +246,7 @@ def make_defaults(representation_channels=128):
         plot_y_range=[0, 3],
     )
 
-    LOTKAVOLTERRA = Config(
+    MODS["LOTKAVOLTERRA"] = Config(
         generator=LotkaVolterraGenerator,
         generator_kwargs=dict(
             num_context=[20, 80],
@@ -272,7 +275,17 @@ def make_defaults(representation_channels=128):
         plot_y_range=[0, 3],
     )
 
-    DETERMINISTICENCODER = Config(
+    MODS["TEMPERATURE"] = Config(
+        generator=TemperatureGenerator,
+        generator_kwargs=dict(
+            num_context=[20, 100],
+            num_target=[20, 100],
+            sequence_length=30 * 24,  # ca. 1 month
+            x_range=(0, 3),
+        ),
+    )
+
+    MODS["DETERMINISTICENCODER"] = Config(
         modules=dict(deterministic_encoder=generic.MLP),
         modules_kwargs=dict(
             deterministic_encoder=dict(
@@ -285,28 +298,7 @@ def make_defaults(representation_channels=128):
         ),
     )
 
-    LONG = Config(n_epochs=1200000, scheduler_kwargs=dict(step_size=2000))
-
-    SHORT = Config(n_epochs=300000)
-
-    MODS = {
-        "ATTENTION": ATTENTION,
-        "CONVCNP": CONVCNP,
-        "GPCONVCNP": GPCONVCNP,
-        "NOSAMPLE": NOSAMPLE,
-        "LEARNNOISE": LEARNNOISE,
-        "LEARNLAMBDA": LEARNLAMBDA,
-        "MATERNKERNEL": MATERNKERNEL,
-        "WEAKLYPERIODICKERNEL": WEAKLYPERIODICKERNEL,
-        "STEP": STEP,
-        "LOTKAVOLTERRASTATIC": LOTKAVOLTERRASTATIC,
-        "LOTKAVOLTERRA": LOTKAVOLTERRA,
-        "FOURIER": FOURIER,
-        "FOURIERSINGLE": FOURIERSINGLE,
-        "DETERMINISTICENCODER": DETERMINISTICENCODER,
-        "LONG": LONG,
-        "SHORT": SHORT,
-    }
+    MODS["LONG"] = Config(n_epochs=1200000, scheduler_kwargs=dict(step_size=2000))
 
     return {"DEFAULTS": DEFAULTS}, MODS
 
@@ -350,7 +342,11 @@ class NeuralProcessExperiment(PytorchExperiment):
         )
         if self.generator.number_of_threads_in_multithreaded > 1:
             self.generator = MultiThreadedAugmenter(
-                self.generator, None, self.generator.number_of_threads_in_multithreaded
+                self.generator,
+                None,
+                self.generator.number_of_threads_in_multithreaded,
+                seeds=np.arange(self.generator.number_of_threads_in_multithreaded)
+                + self.generator.number_of_threads_in_multithreaded * self.config.seed,
             )
 
     def _setup_internal(self):
@@ -376,6 +372,10 @@ class NeuralProcessExperiment(PytorchExperiment):
             model.to(self.config.device)
 
     def train(self, epoch):
+
+        if epoch == 0:
+            self.times = []
+        t0 = time.time()
 
         self.model.train()
         self.optimizer.zero_grad()
@@ -449,6 +449,11 @@ class NeuralProcessExperiment(PytorchExperiment):
             batch["loss_total"] = loss_total.item()
         self.log(batch, validate=False)
         self.step_params(loss_total.item(), epoch, val=False)
+
+        self.times.append(time.time() - t0)
+        if (epoch + 1) % 100 == 0:
+            print(np.mean(self.times))
+            self.times = []
 
     def log(self, summary, validate=False):
 
@@ -760,6 +765,7 @@ class NeuralProcessExperiment(PytorchExperiment):
         generator.target_include_context = False
         generator.batch_size = self.config.test_batch_size
         generator.num_target = self.config.test_num_target_single
+        generator.test = True
         self.model.eval()
 
         info = {}
@@ -797,6 +803,10 @@ class NeuralProcessExperiment(PytorchExperiment):
                         context_out = batch["context_out"].to(self.config.device)
                         target_in = batch["target_in"].to(self.config.device)
                         target_out = batch["target_out"].to(self.config.device)
+
+                        import IPython
+
+                        IPython.embed()
 
                         # PREDICTIVE PERFORMANCE
                         prediction = self.model(
@@ -974,6 +984,7 @@ class NeuralProcessExperiment(PytorchExperiment):
             generator.batch_size = 1
         else:
             generator.batch_size = 32
+        generator.test = True
         self.model.eval()
 
         info = {}
@@ -1063,6 +1074,7 @@ class NeuralProcessExperiment(PytorchExperiment):
         generator.target_include_context = False
         generator.num_target = self.config.test_num_target_diversity
         generator.batch_size = self.config.test_batch_size
+        generator.test = True
         self.model.eval()
 
         info = {}

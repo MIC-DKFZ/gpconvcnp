@@ -54,62 +54,6 @@ class LotkaVolterraGenerator(FunctionGenerator):
         self.super_sample = super_sample
         self.min_batch_size = min_batch_size
 
-    @staticmethod
-    def generate_instance(
-        predator_init, prey_init, rate0, rate1, rate2, rate3, sequence_length, max_time,
-    ):
-
-        predator = [predator_init]
-        prey = [prey_init]
-        time = [0.0]
-
-        X = predator[-1]
-        Y = prey[-1]
-        T = time[-1]
-
-        for i in range(sequence_length - 1):
-
-            current_rates = [
-                rate0 * X * Y,
-                rate1 * X,
-                rate2 * Y,
-                rate3 * X * Y,
-            ]
-            total_rate = np.sum(current_rates)
-            T += np.random.exponential(1 / total_rate)
-            event = np.argmax(np.random.multinomial(1, current_rates / total_rate))
-
-            if event == 0:
-                X += 1
-            elif event == 1:
-                X -= 1
-            elif event == 2:
-                Y += 1
-            elif event == 3:
-                Y -= 1
-            else:
-                raise ValueError(
-                    "Somehow got an event indicator {},\
-                    which is not in (0, 1, 2, 3),\
-                    but there are only 4 possible events!".format(
-                        event
-                    )
-                )
-
-            time.append(T)
-            predator.append(X)
-            prey.append(Y)
-
-            # check some conditions
-            if T > max_time or X == 0 or Y == 0:
-                break
-
-        predator = np.array(predator)
-        prey = np.array(prey)
-        time = np.array(time)
-
-        return time, predator, prey
-
     def generate_train_batch(self):
         """
         We also have to reimplement how x values are drawn,
