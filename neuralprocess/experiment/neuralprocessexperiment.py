@@ -804,10 +804,6 @@ class NeuralProcessExperiment(PytorchExperiment):
                         target_in = batch["target_in"].to(self.config.device)
                         target_out = batch["target_out"].to(self.config.device)
 
-                        import IPython
-
-                        IPython.embed()
-
                         # PREDICTIVE PERFORMANCE
                         prediction = self.model(
                             context_in,
