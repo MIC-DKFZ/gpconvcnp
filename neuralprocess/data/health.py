@@ -24,7 +24,10 @@ class ECGGenerator(FunctionGenerator):
     ):
 
         if working_directory is None:
-            self.working_directory = os.getcwd()
+            if "ECG_DATA_DIR" in os.environ:
+                self.working_directory = os.environ["ECG_DATA_DIR"]
+            else:
+                self.working_directory = os.getcwd()
         else:
             self.working_directory = working_directory
 
