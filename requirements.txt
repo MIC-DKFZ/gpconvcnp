@@ -6,3 +6,4 @@ matplotlib
 ipywidgets
 ipython
 pandas
+wfdb

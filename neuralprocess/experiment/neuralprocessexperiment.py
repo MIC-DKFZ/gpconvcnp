@@ -36,6 +36,7 @@ from neuralprocess.data import (
     LotkaVolterraGenerator,
     FourierSeriesGenerator,
     TemperatureGenerator,
+    ECGGenerator,
 )
 from neuralprocess.data.gp import GaussianKernel, WeaklyPeriodicKernel, Matern52Kernel
 from neuralprocess.model import (
@@ -116,7 +117,7 @@ def make_defaults(representation_channels=128):
         test_batches_diversity=100,
         test_batch_size=1024,
         test_num_context=["random",],  # can also have integers in this list
-        test_num_context_random=[5, 50],
+        test_num_context_random=[3, 100],
         test_num_target_single=100,
         test_num_target_distribution=100,
         test_num_target_diversity=100,
@@ -244,6 +245,7 @@ def make_defaults(representation_channels=128):
             deterministic_encoder=dict(in_channels=3),
         ),
         plot_y_range=[0, 3],
+        test_num_context_random=[20, 80],
     )
 
     MODS["LOTKAVOLTERRA"] = Config(
@@ -273,6 +275,7 @@ def make_defaults(representation_channels=128):
             deterministic_encoder=dict(in_channels=3),
         ),
         plot_y_range=[0, 3],
+        test_num_context_random=[20, 80],
     )
 
     MODS["TEMPERATURE"] = Config(
@@ -283,6 +286,24 @@ def make_defaults(representation_channels=128):
             sequence_length=30 * 24,  # ca. 1 month
             x_range=(0, 3),
         ),
+        test_num_context_random=[20, 100],
+    )
+
+    MODS["ECG"] = Config(
+        generator=ECGGenerator,
+        generator_kwargs=dict(
+            num_context=[50, 100],
+            num_target=[100, 200],
+            sequence_length=1000,  # ca. 4 heartbeats
+            x_range=(0, 3),
+        ),
+        model_kwargs=dict(out_channels=2),
+        modules_kwargs=dict(
+            prior_encoder=dict(in_channels=3),
+            decoder=dict(out_channels=4),
+            deterministic_encoder=dict(in_channels=3),
+        ),
+        test_num_context=[50, 100],
     )
 
     MODS["DETERMINISTICENCODER"] = Config(
@@ -373,10 +394,6 @@ class NeuralProcessExperiment(PytorchExperiment):
 
     def train(self, epoch):
 
-        if epoch == 0:
-            self.times = []
-        t0 = time.time()
-
         self.model.train()
         self.optimizer.zero_grad()
 
@@ -431,6 +448,8 @@ class NeuralProcessExperiment(PytorchExperiment):
 
         except RuntimeError as re:
 
+            raise re
+
             skip = True
 
         # if Cholesky fails or we get NaN gradients, we skip this batch
@@ -449,11 +468,6 @@ class NeuralProcessExperiment(PytorchExperiment):
             batch["loss_total"] = loss_total.item()
         self.log(batch, validate=False)
         self.step_params(loss_total.item(), epoch, val=False)
-
-        self.times.append(time.time() - t0)
-        if (epoch + 1) % 100 == 0:
-            print(np.mean(self.times))
-            self.times = []
 
     def log(self, summary, validate=False):
 
