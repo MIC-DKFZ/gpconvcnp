@@ -19,6 +19,7 @@ class ECGGenerator(FunctionGenerator):
         x_range=(0, 3),
         working_directory=None,
         test=False,
+        percentile_as_target=0,
         **kwargs,
     ):
 
@@ -66,6 +67,7 @@ class ECGGenerator(FunctionGenerator):
         self.subjects_test = [s for s in subjects if s.startswith("2")]
         self.sequence_length = sequence_length
         self.x_range = x_range
+        self.percentile_as_target = percentile_as_target
         self.test = test
 
     def generate_train_batch(self):
@@ -93,23 +95,6 @@ class ECGGenerator(FunctionGenerator):
         else:
             sequence_length = self.sequence_length
 
-        rand_indices = np.random.choice(
-            np.arange(sequence_length), num_context + num_target, replace=False
-        )
-        context_indices = rand_indices[:num_context].copy()
-        if self.target_includes_context:
-            target_indices = rand_indices
-        else:
-            target_indices = rand_indices[-num_target:]
-        context_indices.sort()
-        target_indices.sort()
-
-        x = np.linspace(*self.x_range, sequence_length)
-        x = x.reshape(1, -1, 1).astype(np.float32)
-        x = np.repeat(x, self.batch_size, 0)
-        context_in = x[:, context_indices]
-        target_in = x[:, target_indices]
-
         y = []
         subjects = []
         starting_indices = []
@@ -132,6 +117,45 @@ class ECGGenerator(FunctionGenerator):
             starting_indices.append(start_index)
 
         y = np.stack(y).astype(np.float32)
+
+        # if desired, we include the signal peaks in the target set
+        if self.percentile_as_target > 0.0:
+
+            lower = np.percentile(y, self.percentile_as_target)
+            upper = np.percentile(y, 100 - self.percentile_as_target)
+
+            indices_lower = np.where(y < lower)[1]
+            indices_upper = np.where(y > upper)[1]
+            indices = np.union1d(indices_lower, indices_upper)
+
+            if len(indices) > num_target:
+                indices = np.random.choice(indices, num_target, replace=False)
+
+        else:
+
+            indices = []
+
+        num_target_remaining = num_target - len(indices)
+        rand_indices = np.random.choice(
+            np.arange(sequence_length),
+            num_context + num_target_remaining,
+            replace=False,
+        )
+        context_indices = rand_indices[:num_context].copy()
+        if self.target_includes_context:
+            target_indices = rand_indices
+        else:
+            target_indices = rand_indices[-num_target_remaining:]
+        target_indices = np.union1d(target_indices, indices).astype(np.int)
+        context_indices.sort()
+        target_indices.sort()
+
+        x = np.linspace(*self.x_range, sequence_length)
+        x = x.reshape(1, -1, 1).astype(np.float32)
+        x = np.repeat(x, self.batch_size, 0)
+
+        context_in = x[:, context_indices]
+        target_in = x[:, target_indices]
         context_out = y[:, context_indices]
         target_out = y[:, target_indices]
 

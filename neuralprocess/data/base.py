@@ -41,7 +41,7 @@ class FunctionGenerator(SlimDataLoaderBase):
         num_context=(3, 100),
         num_target=(3, 100),
         target_larger_than_context=True,
-        target_includes_context=True,
+        target_includes_context=False,
         target_fixed_size=False,
         output_noise=0.0,
         linspace=False,

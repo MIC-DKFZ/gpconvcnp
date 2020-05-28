@@ -292,7 +292,7 @@ def make_defaults(representation_channels=128):
     MODS["ECG"] = Config(
         generator=ECGGenerator,
         generator_kwargs=dict(
-            num_context=[50, 100],
+            num_context=[20, 100],
             num_target=[100, 200],
             sequence_length=1000,  # ca. 4 heartbeats
             x_range=(0, 3),
@@ -303,7 +303,7 @@ def make_defaults(representation_channels=128):
             decoder=dict(out_channels=4),
             deterministic_encoder=dict(in_channels=3),
         ),
-        test_num_context=[50, 100],
+        test_num_context=[20, 100],
     )
 
     MODS["DETERMINISTICENCODER"] = Config(
@@ -447,8 +447,6 @@ class NeuralProcessExperiment(PytorchExperiment):
                         break
 
         except RuntimeError as re:
-
-            raise re
 
             skip = True
 
