@@ -303,7 +303,7 @@ def make_defaults(representation_channels=128):
             decoder=dict(out_channels=4),
             deterministic_encoder=dict(in_channels=3),
         ),
-        test_num_context=[20, 100],
+        test_num_context_random=[20, 100],
     )
 
     MODS["DETERMINISTICENCODER"] = Config(
