@@ -35,8 +35,10 @@ class ConvDeepSet(nn.Module):
     One-dimensional set convolution layer. Uses an RBF kernel.
 
     Args:
-        in_channels (int): Number of input channels.
-        out_channels (int): Number of output channels.
+        in_channels (int): Number of input channels
+            (i.e. y channels of the input).
+        out_channels (int): Number of output channels
+            (i.e. y channels of the output).
         learn_length_scale (bool): Learn the length scales of the channels.
         init_length_scale (float): Initial value for the length scale.
         use_density (bool): Append density channel to inputs.
@@ -148,6 +150,16 @@ class ConvDeepSet(nn.Module):
 class GPConvDeepSet(ConvDeepSet):
     """
     A ConvDeepSet that replaces the kernel interpolation with a GP.
+
+    Args:
+        gp_sample_from_posterior (bool): Sample from GP posterior
+            during training. If False, will take the mean.
+        gp_lambda_learnable (bool): Squeeze distribution by a learnable
+            parameter.
+        gp_noise_learnable (bool): Make noise parameter in GP learnable.
+        gp_noise_init (float): Initialize the noise parameter of the GP
+            with exp(this value).
+
     """
 
     def __init__(
@@ -269,7 +281,8 @@ class GPConvDeepSet(ConvDeepSet):
             target_in (torch.tensor): New input values, shape (B, M, 1).
             num_samples (int): Draw this many samples.
             gp_lambda (float): GP covariance will be squeezed by this factor.
-                If None, we use the stored attribute.
+                If None, we use the stored attribute. Note that the stored
+                value is log(lambda).
 
         Returns:
             torch.tensor: Output values at target_in, shape (num_samples, B, M, Cout).
@@ -336,6 +349,11 @@ class ConvCNP(nn.Module):
         conv_net (torch.nn.Module): A CNN that transforms the input
             interpolation. Needs to have in_channels and out_channels
             attributes.
+        in_channels (int): The number of dimensions of the input space.
+            This is ignored and only here to align the signature with
+            other Neural Process implementations! This ConvCNP version
+            will automatically and only work with this equal to 1.
+        out_channels (int): The number of dimensions of the output space.
         use_gp (bool): Use GPConvDeepSet instead of ConvDeepSet for
             input interpolation.
         learn_length_scale (bool): Learn the kernel length scale.
@@ -348,6 +366,15 @@ class ConvCNP(nn.Module):
         grid_divisible_by (int): Ensure the grid is divisible by this number.
             Use this when the CNN performs some sort of pooling or strided
             convolution.
+        gp_sample_from_posterior (bool): Sample from GP posterior
+            during training. If False, will take the mean.
+            Only used when use_gp is True.
+        gp_lambda_learnable (bool): Squeeze distribution by a learnable
+            parameter. Only used when use_gp is True.
+        gp_noise_learnable (bool): Make noise parameter in GP learnable.
+            Only used when use_gp is True.
+        gp_noise_init (float): Initialize the noise parameter of the GP
+            with exp(this value). Only used when use_gp is True.
             
     """
 

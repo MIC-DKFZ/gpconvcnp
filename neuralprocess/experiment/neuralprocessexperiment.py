@@ -18,7 +18,6 @@ if "CUDNN_DETERMINISTIC" in os.environ:
     if os.environ["CUDNN_DETERMINISTIC"] not in (0, False, "false", "FALSE", "False"):
         cudnn.benchmark = False
         cudnn.deterministic = True
-import gpytorch
 
 from batchgenerators.dataloading import MultiThreadedAugmenter
 from trixi.util import Config, ResultLogDict
@@ -36,7 +35,6 @@ from neuralprocess.data import (
     LotkaVolterraGenerator,
     FourierSeriesGenerator,
     TemperatureGenerator,
-    ECGGenerator,
 )
 from neuralprocess.data.gp import GaussianKernel, WeaklyPeriodicKernel, Matern52Kernel
 from neuralprocess.model import (
@@ -218,36 +216,6 @@ def make_defaults(representation_channels=128):
         ),
     )
 
-    MODS["LOTKAVOLTERRASTATIC"] = Config(
-        generator=LotkaVolterraGenerator,
-        generator_kwargs=dict(
-            num_context=[20, 80],
-            num_target=[70, 150],
-            number_of_threads_in_multithreaded=8,
-            predator_init=20,
-            prey_init=30,
-            rate0=0.01,
-            rate1=0.5,
-            rate2=1.0,
-            rate3=0.01,
-            sequence_length=10000,
-            y_rescale=0.01,
-            x_rescale=0.1,
-            max_time=100.0,
-            max_population=500,
-            super_sample=10,
-            x_range=[0, 5],
-        ),
-        model_kwargs=dict(out_channels=2),
-        modules_kwargs=dict(
-            prior_encoder=dict(in_channels=3),
-            decoder=dict(out_channels=4),
-            deterministic_encoder=dict(in_channels=3),
-        ),
-        plot_y_range=[0, 3],
-        test_num_context_random=[20, 80],
-    )
-
     MODS["LOTKAVOLTERRA"] = Config(
         generator=LotkaVolterraGenerator,
         generator_kwargs=dict(
@@ -285,23 +253,6 @@ def make_defaults(representation_channels=128):
             num_target=[20, 100],
             sequence_length=30 * 24,  # ca. 1 month
             x_range=(0, 3),
-        ),
-        test_num_context_random=[20, 100],
-    )
-
-    MODS["ECG"] = Config(
-        generator=ECGGenerator,
-        generator_kwargs=dict(
-            num_context=[20, 100],
-            num_target=[100, 200],
-            sequence_length=1000,  # ca. 4 heartbeats
-            x_range=(0, 3),
-        ),
-        model_kwargs=dict(out_channels=2),
-        modules_kwargs=dict(
-            prior_encoder=dict(in_channels=3),
-            decoder=dict(out_channels=4),
-            deterministic_encoder=dict(in_channels=3),
         ),
         test_num_context_random=[20, 100],
     )
