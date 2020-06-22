@@ -7,14 +7,29 @@ from neuralprocess.data.base import FunctionGenerator
 
 
 def get_temperature_data():
+    """
+    Load temperature data, taken from
+    https://www.kaggle.com/selfishgene/historical-hourly-weather-data.
+    """
     return pd.read_csv(os.path.join(os.path.dirname(__file__), "temperature.csv"))
 
 
 class TemperatureGenerator(FunctionGenerator):
     """
+    Generate temperature sequences, taken from
+    https://www.kaggle.com/selfishgene/historical-hourly-weather-data.
+    Each entry covers about 5 years of data, and we draw sequences randomly.
 
     Args:
         batch_size (int): Batch size.
+        sequence_length (int): Sequence length in hours.
+        x_range (tuple/list): Normalize time axis to this range.
+        train_cities (tuple/list): Use these cities when in train mode.
+            If None, will use default list.
+        test_cities (tuple/list): use these cities when in test mode.
+            If None, will use default list.
+        test (bool): Activate test mode. You can edit the `test`
+            attribute manually at a later stage.
 
     """
 

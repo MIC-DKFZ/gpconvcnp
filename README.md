@@ -38,9 +38,13 @@ The modifications are defined at the top of the file. The default configuration 
 * `ATTENTION` will use an ANP instead of a NP. Requires the `DETERMINISTICENCODER` mod.
 * `CONVCNP` will use a ConvCNP instead of a NP.
 * `GPCONVCNP` will use a GP-ConvCNP instead of a NP. Requires the `CONVCNP` mod to be set.
+* `LEARNNOISE` makes sigma^2 in the GP learnable. This was used in the experiments in the paper.
 * `MATERNKERNEL` will train on functions from GP with a Matern-5/2 kernel.
 * `WEAKLYPERIODICKERNEL` will train on functions from a GP with a weakly periodic kernel as defined in the ConvCNP paper.
 * `STEP` will train on step functions
+* `FOURIER` will train on random Fourier series.
+* `LOTKAVOLTERRA` will train on population dynamics generated from Lotka-Volterra equations.
+* `TEMPERATURE` will train on temperature measurements taken from [here](https://www.kaggle.com/selfishgene/historical-hourly-weather-data).
 * `LONG` will double the number of training epochs.
 
 Beyond that you can modify any value in the configuration directly, including deeper levels. For example, if you have the `ATTENTION` option activated, but you only want to use 4 heads in the attention mechanism, you could add the flag `--modules_kwargs.attention.num_heads 4`. Other useful flags are
@@ -50,5 +54,5 @@ Beyond that you can modify any value in the configuration directly, including de
 
 To give a more illustrative example, let's assume you want to run GP-ConvCNP on step functions with twice the default amount of epochs, but with a larger initial learning rate. You also want to run the tests at the end, but for some reason only those for prediction and reconstruction ability. The training should be logged to Visdom and you want an automatic description generated. Your command would look like this:
 
-    python neuralprocessexperiment.py LOG_DIR -v -ad -m STEP CONVCNP GPCONVCNP LONG --optimizer_kwargs.lr 1e-2 --test --test_distribution false --test_diversity false
+    python neuralprocessexperiment.py LOG_DIR -v -ad -m STEP CONVCNP GPCONVCNP LONG --optimizer_kwargs.lr 1e-2 --test --test_diversity false
 

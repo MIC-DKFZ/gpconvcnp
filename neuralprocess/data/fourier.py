@@ -6,7 +6,23 @@ from neuralprocess.data.base import FunctionGenerator
 
 class FourierSeriesGenerator(FunctionGenerator):
     """
-    TBD
+    Generate random Fourier series. We use the amplitude-phase representation,
+    meaning the instances are of the form
+        
+        y(x) = bias + SUM_k(a_k * cos((k*x - phase_k) / frequency_scale))
+
+    Args:
+        batch_size (int): Batch size.
+        series_length (int): Number of Fourier components, not counting
+            bias term. Can be an iterable to draw randomly from.
+        amplitude (float): a_k in definition above.
+            Can be an iterable to draw randomly from.
+        phase (float): phase_k in definition above.
+            Can be an iterable to draw randomly from.
+        bias (float): bias in definition above.
+            Can be an iterable to draw randomly from.
+        frequency_scale (float): Scale for x axis, see definition above.
+            Can be an iterable to draw randomly from.
 
     """
 

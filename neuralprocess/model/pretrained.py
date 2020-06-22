@@ -161,7 +161,7 @@ class ConvCNP(ConvCNPBase):
             learn_length_scale=True,
             init_length_scale=0.1,
             use_density=True,
-            use_density_norm=True,
+            use_density_norm=not use_gp,
             points_per_unit=20,
             range_padding=0.1,
             grid_divisible_by=64,

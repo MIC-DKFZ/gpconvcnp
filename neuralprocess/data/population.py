@@ -7,15 +7,65 @@ from neuralprocess.data.base import FunctionGenerator
 
 
 def get_lynx_hare_data():
+    """Load the Hudson Bay Company lynx-hare dataset."""
     return pd.read_csv(os.path.join(os.path.dirname(__file__), "lynxhare.csv"))
 
 
 class LotkaVolterraGenerator(FunctionGenerator):
     """
-    Generate population dynamics using Lotka-Volterra model.
+    Generate population dynamics using a Lotka-Volterra model. Let (X, Y)
+    denote the population of (predator, prey).
+    Starting with the initial population (X, Y) = (predator_init, prey_init),
+    we draw time increments from an exponential distribution and
+    let one of the following events occur:
+
+        1. A single predator is born with probability proportional to
+        rate = rate1 * X * Y
+        2. A single predator dies with probability proportional to
+        rate = rate2 * X
+        3. A single prey is born with probability proportional to
+        rate = rate3 * Y
+        4. A single prey dies with probability proportional to
+        rate = rate4 * X * Y
+
+    The time increments are drawn from an exponential distribution with
+    a rate parameter that is the sum of all the above rates. We are removing
+    populations that have died out, that are too large, or that have a time
+    axis that is too large.
 
     Args:
         batch_size (int): Batch size.
+        predator_init (int): Intial number of predators.
+            Can be an iterable to draw randomly from.
+        prey_init (int): Intial number of prey.
+            Can be an iterable to draw randomly from.
+        rate0 (float): First rate parameter, see above for explanation.
+            Can be an iterable to draw randomly from.
+        rate1 (float): Second rate parameter, see above for explanation.
+            Can be an iterable to draw randomly from.
+        rate2 (float): Third rate parameter, see above for explanation.
+            Can be an iterable to draw randomly from.
+        rate3 (float): Fourth rate parameter, see above for explanation.
+            Can be an iterable to draw randomly from.
+        sequence_length (int): Sequences will have this many events.
+        x_rescale (float): Rescale time axis by this multiplier.
+        y_rescale (float): Rescale population axis by this multiplier.
+        max_time (float): Remove sequences with time values larger than this.
+            This ensures somewhat comparable time axes between sequences.
+        max_population (int): Remove populations larger than this.
+        super_sample (float): Multiply batch size internally by this number.
+            Because we remove some examples, we need to create more to still
+            be able to keep our batch size. If you need to set this parameter
+            for a new configuration of parameters, set this to a large value
+            and check the "rejection_ratio" in the batches. You can use that
+            to then set a sensible value that still practically guarantees
+            full batches.
+        min_batch_size (int): Internal minimum batch size. This is necessary
+            for small batch sizes. Assume you have a rejection ratio of
+            ~ 30% and you set super_sample to 2. For large batch sizes that
+            practically guarantess full batches, but if you want to work with
+            batch size of 1, for example, that would still mean there's a
+            probability of ~ 50% that a batch is empty.
 
     """
 
@@ -57,7 +107,7 @@ class LotkaVolterraGenerator(FunctionGenerator):
     def generate_train_batch(self):
         """
         We also have to reimplement how x values are drawn,
-        so we can't just use self.apply(x).
+        so we can't just use self.apply(x) like in other generators.
         """
 
         # get context and target sizes for batch
