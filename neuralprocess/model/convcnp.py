@@ -146,6 +146,41 @@ class ConvDeepSet(nn.Module):
         scales = self.sigma_fn(self.sigma)[None, None, None, :]
         return torch.exp(-0.5 * dists.unsqueeze(-1) / scales ** 2)
 
+    def interpolation_only(self, context_in, context_out, target_in):
+
+        # Ensure that context_in, context_out, and target_in are rank-3 tensors.
+        if len(context_in.shape) == 2:
+            context_in = context_in.unsqueeze(2)
+        if len(context_out.shape) == 2:
+            context_out = context_out.unsqueeze(2)
+        if len(target_in.shape) == 2:
+            target_in = target_in.unsqueeze(2)
+
+        # Compute shapes.
+        B, N = context_in.shape[:2]
+        M = target_in.shape[1]
+
+        # Compute the pairwise distances.
+        # Shape: (B, N, M).
+        dists = torch.pow(context_in.unsqueeze(2) - target_in.unsqueeze(1), 2)
+        dists = dists.sum(-1)
+
+        # Compute the weights.
+        # Shape: (B, N, M, Cin).
+        weights = self.rbf(dists)
+
+        # Append density channel if required
+        if self.use_density:
+            density = torch.ones(B, N, 1).to(context_in.device)
+            context_out = torch.cat([density, context_out], dim=2)
+
+        # Perform the weighting, then sum over inputs
+        # Shape: (B, M, Cin).
+        output = context_out.unsqueeze(2) * weights
+        output = output.sum(1)
+
+        return output
+
 
 class GPConvDeepSet(ConvDeepSet):
     """
@@ -337,6 +372,43 @@ class GPConvDeepSet(ConvDeepSet):
         samples = samples.view(num_samples, B, M, -1)
 
         return samples
+
+    def interpolation_only(self, context_in, context_out, target_in):
+
+        # Ensure that context_in, context_out, and target_in are rank-3 tensors.
+        if len(context_in.shape) == 2:
+            context_in = context_in.unsqueeze(2)
+        if len(context_out.shape) == 2:
+            context_out = context_out.unsqueeze(2)
+        if len(target_in.shape) == 2:
+            target_in = target_in.unsqueeze(2)
+
+        # Compute shapes.
+        B, N = context_in.shape[:2]
+        M = target_in.shape[1]
+
+        # Compute GP kernel and decompose
+        # we can't use self.rbf for K when there is also a sigma for
+        # the density
+        dists_in = torch.pow(context_in.unsqueeze(2) - context_in.unsqueeze(1), 2)
+        dists_in = dists_in.sum(-1)
+        K = torch.exp(-0.5 * dists_in / self.sigma_fn(self.sigma[-1]) ** 2)
+        K = K + torch.eye(K.shape[-1]).type_as(K) * self.sigma_fn(
+            self.gp_noise
+        ).type_as(K)
+        L = gpytorch.utils.cholesky.psd_safe_cholesky(K)  # (B, N, N)
+
+        # Do the same for context_in and target_in
+        dists = torch.pow(context_in.unsqueeze(2) - target_in.unsqueeze(1), 2)
+        dists = dists.sum(-1)
+        K_s = torch.exp(-0.5 * dists / self.sigma_fn(self.sigma[-1]) ** 2)
+        L_k, _ = torch.solve(K_s, L)  # (B, N, M)
+
+        # Compute mean prediction
+        # Shape (B, M, Cin)
+        output = torch.bmm(L_k.transpose(1, 2), torch.solve(context_out, L)[0])
+
+        return output
 
 
 class ConvCNP(nn.Module):
