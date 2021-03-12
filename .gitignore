@@ -131,3 +131,4 @@ dmypy.json
 .idea
 neuralprocess/experiment/data.zip
 neuralprocess/experiment/mit-*
+.vscode/*
