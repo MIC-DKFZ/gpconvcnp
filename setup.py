@@ -11,7 +11,8 @@ def resolve_requirements(file):
         for r in req:
             if r.startswith("-r"):
                 requirements += resolve_requirements(
-                    os.path.join(os.path.dirname(file), r.split(" ")[1]))
+                    os.path.join(os.path.dirname(file), r.split(" ")[1])
+                )
             else:
                 requirements.append(r)
     return requirements
@@ -32,28 +33,29 @@ def find_version(file):
 
 
 required = resolve_requirements(
-    os.path.join(os.path.dirname(__file__), 'requirements.txt'))
+    os.path.join(os.path.dirname(__file__), "requirements.txt")
+)
 required_experiment = resolve_requirements(
-    os.path.join(os.path.dirname(__file__), 'requirements_experiment.txt'))
-readme = read_file(
-    os.path.join(os.path.dirname(__file__), "README.md"))
+    os.path.join(os.path.dirname(__file__), "requirements_experiment.txt")
+)
+readme = read_file(os.path.join(os.path.dirname(__file__), "README.md"))
 version = find_version(
-    os.path.join(os.path.dirname(__file__), "neuralprocess", "__init__.py"))
+    os.path.join(os.path.dirname(__file__), "neuralprocess", "__init__.py")
+)
 
 
-setup(name='neuralprocess',
-      version=version,
-      description='Neural Processes in PyTorch',
-      long_description=readme,
-      long_description_content_type="text/markdown",
-      author='Anonymous Authors',
-      author_email='anon.email@domain.com',
-      license="MIT",
-      packages=find_packages(),
-      install_requires=required,
-      zip_safe=True,
-      include_package_data=True,
-      extras_require={
-          "experiment": required_experiment
-      }
-      )
+setup(
+    name="neuralprocess",
+    version=version,
+    description="PyTorch implementation of GP-ConvCNP and other Neural Processes",
+    long_description=readme,
+    long_description_content_type="text/markdown",
+    author="Jens Petersen",
+    author_email="jens.petersen@dkfz.de",
+    license="MIT",
+    packages=find_packages(),
+    install_requires=required,
+    zip_safe=True,
+    include_package_data=True,
+    extras_require={"experiment": required_experiment},
+)

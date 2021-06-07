@@ -1,6 +1,6 @@
 # GP-ConvCNP
 
-This repository contains examples and pretrained models for our GP-ConvCNP submission to ICML 2020. You can explore examples interactively in the `examples.ipynb` (in the same folder as this README) Jupyter notebook and also re-run our experiments. Further instructions are below.
+This repository contains examples and pretrained models for our UAI 2021 paper called "GP-ConvCNP: Better Generalization for Conditional Convolutional Neural Processes on Time Series Data". You can explore examples interactively in the `examples.ipynb` (in the same folder as this README) Jupyter notebook and also re-run our experiments. Further instructions are below.
 
 ## Installation
 
@@ -8,7 +8,7 @@ If you just want to look at the examples, it's enough to install the package in 
 
     pip install path/to/this/folder
 
-which will create a package called `neuralprocess` in your current Python environment. We recommend you create a new virtualenv or conda environment before installing. If you also want to be able to run the experiments yourself, you need to install with the `experiment` option
+which will create a package called `neuralprocess` in your current Python environment. The package includes our GP-ConvCNP implementation, but also implementations of other major Neural Process variants (ConvCNP, NP, ANP), hence the name We recommend you create a new virtualenv or conda environment before installing. If you also want to be able to run the experiments yourself, you need to install with the `experiment` option
 
     pip install path/to/this/folder[experiment]
 
