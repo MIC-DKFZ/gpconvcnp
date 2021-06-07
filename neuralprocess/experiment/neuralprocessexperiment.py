@@ -114,7 +114,9 @@ def make_defaults(representation_channels=128):
         test_batches_distribution=30,
         test_batches_diversity=100,
         test_batch_size=1024,
-        test_num_context=["random",],  # can also have integers in this list
+        test_num_context=[
+            "random",
+        ],  # can also have integers in this list
         test_num_context_random=[3, 100],
         test_num_target_single=100,
         test_num_target_distribution=100,
@@ -171,7 +173,10 @@ def make_defaults(representation_channels=128):
     MODS["NOSAMPLE"] = Config(model_kwargs=dict(gp_sample_from_posterior=False))
 
     MODS["LEARNNOISE"] = Config(  # Requires GPCONVCNP
-        model_kwargs=dict(gp_noise_learnable=True, gp_noise_init=-2.0,)
+        model_kwargs=dict(
+            gp_noise_learnable=True,
+            gp_noise_init=-2.0,
+        )
     )
 
     MODS["LEARNLAMBDA"] = Config(  # Requires GPCONVCNP
@@ -364,7 +369,11 @@ class NeuralProcessExperiment(PytorchExperiment):
         try:
 
             prediction = self.model(
-                context_in, context_out, target_in, target_out, store_rep=False,
+                context_in,
+                context_out,
+                target_in,
+                target_out,
+                store_rep=False,
             )
             prediction = tensor_to_loc_scale(
                 prediction,
@@ -950,7 +959,9 @@ class NeuralProcessExperiment(PytorchExperiment):
         info["dims"] = ["test_num_context", "metric"]
         info["coords"] = {
             "test_num_context": self.config.test_num_context,
-            "metric": ["wasserstein",],
+            "metric": [
+                "wasserstein",
+            ],
         }
 
         scores = []
@@ -1010,7 +1021,13 @@ class NeuralProcessExperiment(PytorchExperiment):
             )
             wdist = np.sqrt(wdist)
 
-            scores.append(np.array([wdist,]))
+            scores.append(
+                np.array(
+                    [
+                        wdist,
+                    ]
+                )
+            )
 
         scores = np.stack(scores)
         self.elog.save_numpy_data(scores, "test_distribution.npy")
