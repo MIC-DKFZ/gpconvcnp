@@ -4,7 +4,6 @@ import torch
 from neuralprocess.data.base import FunctionGenerator
 
 
-
 class StepFunctionGenerator(FunctionGenerator):
     """
     Generate step functions.
@@ -21,13 +20,16 @@ class StepFunctionGenerator(FunctionGenerator):
 
     """
 
-    def __init__(self,
-                 batch_size,
-                 y_range=[-3, 3],
-                 number_of_steps=[3, 10],
-                 min_step_width=0.1,
-                 min_step_height=0.1,
-                 *args, **kwargs):
+    def __init__(
+        self,
+        batch_size,
+        y_range=[-3, 3],
+        number_of_steps=[3, 10],
+        min_step_width=0.1,
+        min_step_height=0.1,
+        *args,
+        **kwargs
+    ):
 
         super().__init__(batch_size, *args, **kwargs)
 
@@ -59,25 +61,28 @@ class StepFunctionGenerator(FunctionGenerator):
         step_width = np.abs(step_x[1:] - step_x[:-1])
         if np.any(step_width < self.min_step_width):
             raise RuntimeError("Couln't generate step function with wide enough steps.")
-    
 
         y = np.zeros((self.batch_size, *x.shape[1:]), dtype=np.float32)
         new_values = np.random.uniform(*self.y_range, size=(self.batch_size, 1))
-        y[:, :step_indices[0], 0] = np.repeat(new_values, step_indices[0], 1)
+        y[:, : step_indices[0], 0] = np.repeat(new_values, step_indices[0], 1)
         for i in range(number_of_steps - 1):
             old_values = new_values
             new_values = np.random.uniform(*self.y_range, size=(self.batch_size, 1))
             if self.min_step_height > 0:
                 diffs = new_values - old_values
                 ind = np.where(np.abs(diffs) < self.min_step_height)
-                new_values[ind] += (np.sign(diffs)*self.min_step_height)[ind]
-            y[:, step_indices[i]:step_indices[i+1], 0] = np.repeat(new_values, step_indices[i+1] - step_indices[i], 1)
+                new_values[ind] += (np.sign(diffs) * self.min_step_height)[ind]
+            y[:, step_indices[i] : step_indices[i + 1], 0] = np.repeat(
+                new_values, step_indices[i + 1] - step_indices[i], 1
+            )
         old_values = new_values
         new_values = np.random.uniform(*self.y_range, size=(self.batch_size, 1))
         if self.min_step_height > 0:
             diffs = new_values - old_values
             ind = np.where(np.abs(diffs) < self.min_step_height)
-            new_values[ind] += (np.sign(diffs)*self.min_step_height)[ind]
-        y[:, step_indices[-1]:, 0] = np.repeat(new_values, y.shape[1] - step_indices[-1], 1)
+            new_values[ind] += (np.sign(diffs) * self.min_step_height)[ind]
+        y[:, step_indices[-1] :, 0] = np.repeat(
+            new_values, y.shape[1] - step_indices[-1], 1
+        )
 
         return y

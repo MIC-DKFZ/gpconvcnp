@@ -447,7 +447,7 @@ class ConvCNP(nn.Module):
             Only used when use_gp is True.
         gp_noise_init (float): Initialize the noise parameter of the GP
             with exp(this value). Only used when use_gp is True.
-            
+
     """
 
     def __init__(

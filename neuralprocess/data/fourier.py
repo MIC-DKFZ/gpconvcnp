@@ -8,7 +8,7 @@ class FourierSeriesGenerator(FunctionGenerator):
     """
     Generate random Fourier series. We use the amplitude-phase representation,
     meaning the instances are of the form
-        
+
         y(x) = bias + SUM_k(a_k * cos((k*x - phase_k) / frequency_scale))
 
     Args:

@@ -2,7 +2,6 @@ import torch
 import numpy as np
 
 
-
 def set_seeds(seed, cuda=True):
     """
     Set all seeds in numpy and torch.
@@ -17,8 +16,8 @@ def set_seeds(seed, cuda=True):
         seed = (seed, seed, seed)
     np.random.seed(seed[0])
     torch.manual_seed(seed[1])
-    if cuda: torch.cuda.manual_seed_all(seed[2])
-
+    if cuda:
+        torch.cuda.manual_seed_all(seed[2])
 
 
 def tensor_to_loc_scale(tensor, distribution, logvar_transform=True, axis=1):
@@ -39,19 +38,17 @@ def tensor_to_loc_scale(tensor, distribution, logvar_transform=True, axis=1):
     if tensor.shape[axis] % 2 != 0:
         raise IndexError("Axis {} of 'tensor' must be divisible by 2.".format(axis))
 
-    loc, scale = torch.split(tensor, tensor.shape[axis]//2, axis)
+    loc, scale = torch.split(tensor, tensor.shape[axis] // 2, axis)
     if logvar_transform:
         scale = torch.exp(0.5 * scale)
 
     return distribution(loc, scale)
 
 
-
 def stack_batch(tensor):
     """Stacks first axis along second axis."""
 
-    return tensor.reshape(tensor.shape[0]*tensor.shape[1], *tensor.shape[2:])
-
+    return tensor.reshape(tensor.shape[0] * tensor.shape[1], *tensor.shape[2:])
 
 
 def unstack_batch(tensor, B):
@@ -59,7 +56,6 @@ def unstack_batch(tensor, B):
 
     N = tensor.shape[0] // B
     return tensor.reshape(B, N, *tensor.shape[1:])
-
 
 
 def make_grid(x, points_per_unit, padding=0.1, grid_divisible_by=None):
@@ -106,7 +102,6 @@ def make_grid(x, points_per_unit, padding=0.1, grid_divisible_by=None):
     grid = grid.to(dtype=x.dtype, device=x.device)
 
     return grid
-
 
 
 def match_shapes(*args, ignore_axes=None):

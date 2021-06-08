@@ -1,8 +1,12 @@
 import torch
 import torch.nn as nn
 
-from neuralprocess.util import tensor_to_loc_scale, stack_batch, unstack_batch, match_shapes
-
+from neuralprocess.util import (
+    tensor_to_loc_scale,
+    stack_batch,
+    unstack_batch,
+    match_shapes,
+)
 
 
 class NeuralProcess(nn.Module):
@@ -33,25 +37,32 @@ class NeuralProcess(nn.Module):
 
     """
 
-    def __init__(self,
-                 prior_encoder=None,
-                 posterior_encoder=None,
-                 deterministic_encoder=None,
-                 decoder=None,
-                 distribution=torch.distributions.Normal,
-                 *args, **kwargs):
-        
+    def __init__(
+        self,
+        prior_encoder=None,
+        posterior_encoder=None,
+        deterministic_encoder=None,
+        decoder=None,
+        distribution=torch.distributions.Normal,
+        *args,
+        **kwargs
+    ):
+
         super().__init__()
 
         # check minimum requirements
         if prior_encoder is None and deterministic_encoder is None:
-            raise ValueError("Need at least one of 'prior_encoder' and \
-                'deterministic_encoder', but both are None.")
+            raise ValueError(
+                "Need at least one of 'prior_encoder' and \
+                'deterministic_encoder', but both are None."
+            )
         if decoder is None:
             raise ValueError("'decoder' must not be None.")
         if not issubclass(distribution, torch.distributions.Distribution):
-            raise TypeError("'distribution' must be a subclass of \
-                torch.distributions.Distribution.")
+            raise TypeError(
+                "'distribution' must be a subclass of \
+                torch.distributions.Distribution."
+            )
 
         self.prior_encoder = prior_encoder
         if posterior_encoder is not None:
@@ -87,10 +98,7 @@ class NeuralProcess(nn.Module):
 
         return representations.mean(1)
 
-    def encode_prior(self,
-                     context_in,
-                     context_out,
-                     target_in=None):
+    def encode_prior(self, context_in, context_out, target_in=None):
         """
         Use the 'prior_encoder' to encode a prior distribution
 
@@ -110,20 +118,21 @@ class NeuralProcess(nn.Module):
         context_in = stack_batch(context_in)
         context_out = stack_batch(context_out)
 
-        prior_rep = self.prior_encoder(torch.cat(match_shapes(context_in, context_out, ignore_axes=1), 1))
+        prior_rep = self.prior_encoder(
+            torch.cat(match_shapes(context_in, context_out, ignore_axes=1), 1)
+        )
         prior_rep = unstack_batch(prior_rep, B)
         prior_rep = self.aggregate(prior_rep)
 
         self.prior = tensor_to_loc_scale(
-            prior_rep, self.distribution, logvar_transform=True)
+            prior_rep, self.distribution, logvar_transform=True
+        )
 
         return self.prior
 
-    def encode_representation(self,
-                              context_in,
-                              context_out,
-                              target_in=None,
-                              store_rep=False):
+    def encode_representation(
+        self, context_in, context_out, target_in=None, store_rep=False
+    ):
         """
         Use the 'deterministic_encoder' to encode a representation
 
@@ -144,14 +153,16 @@ class NeuralProcess(nn.Module):
         context_in = stack_batch(context_in)
         context_out = stack_batch(context_out)
 
-        rep = self.deterministic_encoder(torch.cat(match_shapes(context_in, context_out, ignore_axes=1), 1))
+        rep = self.deterministic_encoder(
+            torch.cat(match_shapes(context_in, context_out, ignore_axes=1), 1)
+        )
         rep = unstack_batch(rep, B)
         rep = self.aggregate(rep)
         if store_rep:
             self.representation = rep
 
         return rep
-    
+
     def encode_posterior(self, context_in, context_out, target_in, target_out):
         """
         Use the 'posterior_encoder' to encode a posterior distribution
@@ -166,7 +177,7 @@ class NeuralProcess(nn.Module):
             torch.distributions.Distribution: Output of 'decoder'
 
         """
-        
+
         B, N = context_in.shape[:2]
         M = target_in.shape[1]
 
@@ -179,9 +190,10 @@ class NeuralProcess(nn.Module):
         posterior_rep = self.posterior_encoder(context)
         posterior_rep = unstack_batch(posterior_rep, B)
         posterior_rep = self.aggregate(posterior_rep)
-        
+
         self.posterior = tensor_to_loc_scale(
-            posterior_rep, self.distribution, logvar_transform=True)
+            posterior_rep, self.distribution, logvar_transform=True
+        )
 
         return self.posterior
 
@@ -208,10 +220,15 @@ class NeuralProcess(nn.Module):
 
         else:
 
-            concat = [target_in, ]
+            concat = [
+                target_in,
+            ]
 
             if sample is not None:
-                if sample.ndim != target_in.ndim or sample.shape[1] != target_in.shape[1]:
+                if (
+                    sample.ndim != target_in.ndim
+                    or sample.shape[1] != target_in.shape[1]
+                ):
                     # this could fail if there is one spatial axis in
                     # a global sample and the number of target points
                     # happens to be the number of channels of the sample.
@@ -220,7 +237,10 @@ class NeuralProcess(nn.Module):
                 concat.append(sample)
 
             if representation is not None:
-                if representation.ndim != target_in.ndim or representation.shape[1] != target_in.shape[1]:
+                if (
+                    representation.ndim != target_in.ndim
+                    or representation.shape[1] != target_in.shape[1]
+                ):
                     # see comment for sample
                     representation = representation.unsqueeze(1)
                 concat.append(representation)
@@ -232,13 +252,9 @@ class NeuralProcess(nn.Module):
 
             return result
 
-    
-    def forward(self,
-                context_in,
-                context_out,
-                target_in,
-                target_out=None,
-                store_rep=False):
+    def forward(
+        self, context_in, context_out, target_in, target_out=None, store_rep=False
+    ):
         """
         Forward pass in the Neural Process. 'prior' (and 'posterior'
         during training) will be stored automatically, 'representation'
@@ -258,15 +274,15 @@ class NeuralProcess(nn.Module):
 
         if self.deterministic_encoder is not None:
             representation = self.encode_representation(
-                context_in, context_out, target_in, store_rep=store_rep)
+                context_in, context_out, target_in, store_rep=store_rep
+            )
         else:
             representation = None
-        
+
         if self.prior_encoder is not None:
             self.encode_prior(context_in, context_out, target_in)
             if self.training:
-                self.encode_posterior(
-                    context_in, context_out, target_in, target_out)
+                self.encode_posterior(context_in, context_out, target_in, target_out)
                 sample = self.sample_posterior()
             else:
                 sample = self.sample_prior(mean=True)
@@ -279,15 +295,17 @@ class NeuralProcess(nn.Module):
         """
         Get a random sample from the posterior. Will use
         reparametrization trick during training.
-        
+
         Returns:
             torch.tensor: The sample.
-            
+
         """
 
         if self.posterior is None:
-            raise ValueError("'posterior' is None. Please use \
-                'encode_posterior' first.")
+            raise ValueError(
+                "'posterior' is None. Please use \
+                'encode_posterior' first."
+            )
         if self.training:
             sample = self.posterior.rsample()
         else:
@@ -300,10 +318,10 @@ class NeuralProcess(nn.Module):
 
         Args:
             mean (bool): Return the prior mean.
-        
+
         Returns:
             torch.tensor: The sample.
-            
+
         """
 
         if self.prior is None:
@@ -313,7 +331,7 @@ class NeuralProcess(nn.Module):
         else:
             sample = self.prior.sample()
         return sample
-    
+
     def sample(self, target_in, n=1, from_posterior=False, to_cpu=True):
         """
         Get prediction samples. Will automatically use eval mode. Make
@@ -331,13 +349,13 @@ class NeuralProcess(nn.Module):
             torch.tensor: Stacked samples of shape (n, B, M, Cout, ...).
 
         """
-        
+
         if n < 1:
             raise ValueError("n must be >= 1, but is {}.".format(n))
-            
+
         if self.prior is None:
             raise ValueError("Please encode prior first.")
-            
+
         if from_posterior and self.posterior is None:
             raise ValueError("Please encode posterior first.")
 

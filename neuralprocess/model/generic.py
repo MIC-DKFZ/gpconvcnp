@@ -2,7 +2,6 @@ import torch
 import torch.nn as nn
 
 
-
 class MLP(nn.Sequential):
     """
     A simple multilayer perceptron.
@@ -15,35 +14,38 @@ class MLP(nn.Sequential):
         hidden_layers (int): Use this many hidden layers.
     """
 
-    def __init__(self,
-                 in_channels,
-                 out_channels,
-                 hidden_channels=128,
-                 hidden_layers=6,
-                 activation_op=nn.Tanh,
-                 activation_kwargs=None,
-                 bias=True):
+    def __init__(
+        self,
+        in_channels,
+        out_channels,
+        hidden_channels=128,
+        hidden_layers=6,
+        activation_op=nn.Tanh,
+        activation_kwargs=None,
+        bias=True,
+    ):
 
         super().__init__()
 
         if isinstance(hidden_channels, int):
-            hidden_channels = [hidden_channels, ] * hidden_layers
+            hidden_channels = [
+                hidden_channels,
+            ] * hidden_layers
         if activation_kwargs is None:
             activation_kwargs = dict()
 
-        self.add_module("lin0", nn.Linear(in_channels,
-                                          hidden_channels[0],
-                                          bias=bias))
+        self.add_module("lin0", nn.Linear(in_channels, hidden_channels[0], bias=bias))
         self.add_module("act0", activation_op(**activation_kwargs))
         for h in range(1, hidden_layers):
-            self.add_module("lin" + str(h), nn.Linear(hidden_channels[h-1],
-                                                      hidden_channels[h],
-                                                      bias=bias))
+            self.add_module(
+                "lin" + str(h),
+                nn.Linear(hidden_channels[h - 1], hidden_channels[h], bias=bias),
+            )
             self.add_module("act" + str(h), activation_op(**activation_kwargs))
-        self.add_module("lin" + str(hidden_layers), nn.Linear(hidden_channels[-1],
-                                                              out_channels,
-                                                              bias=bias))
-
+        self.add_module(
+            "lin" + str(hidden_layers),
+            nn.Linear(hidden_channels[-1], out_channels, bias=bias),
+        )
 
 
 class ConvNormActivationPool(nn.Sequential):
@@ -65,24 +67,21 @@ class ConvNormActivationPool(nn.Sequential):
 
     """
 
-    def __init__(self,
-                 in_channels,
-                 out_channels,
-                 conv_op=nn.Conv1d,
-                 conv_kwargs=dict(
-                     kernel_size=5,
-                     stride=2,
-                     padding=2
-                 ),
-                 norm_op=None,
-                 norm_kwargs=None,
-                 activation_op=nn.ReLU,
-                 activation_kwargs=dict(
-                     inplace=True
-                 ),
-                 pool_op=None,
-                 pool_kwargs=None,
-                 *args, **kwargs):
+    def __init__(
+        self,
+        in_channels,
+        out_channels,
+        conv_op=nn.Conv1d,
+        conv_kwargs=dict(kernel_size=5, stride=2, padding=2),
+        norm_op=None,
+        norm_kwargs=None,
+        activation_op=nn.ReLU,
+        activation_kwargs=dict(inplace=True),
+        pool_op=None,
+        pool_kwargs=None,
+        *args,
+        **kwargs
+    ):
 
         super().__init__()
 
@@ -105,7 +104,6 @@ class ConvNormActivationPool(nn.Sequential):
             self.add_module("pool", pool_op(**pool_kwargs))
 
 
-
 class UpsampleConvNormActivation(nn.Sequential):
     """
     A simple block consisting of (Upsampling, Conv(Transpose), Norm, Activation)
@@ -125,25 +123,21 @@ class UpsampleConvNormActivation(nn.Sequential):
 
     """
 
-    def __init__(self,
-                 in_channels,
-                 out_channels,
-                 upsample_op=None,
-                 upsample_kwargs=None,
-                 conv_op=nn.ConvTranspose1d,
-                 conv_kwargs=dict(
-                     kernel_size=5,
-                     stride=2,
-                     padding=2,
-                     output_padding=1
-                 ),
-                 norm_op=None,
-                 norm_kwargs=None,
-                 activation_op=nn.ReLU,
-                 activation_kwargs=dict(
-                     inplace=True
-                 ),
-                 *args, **kwargs):
+    def __init__(
+        self,
+        in_channels,
+        out_channels,
+        upsample_op=None,
+        upsample_kwargs=None,
+        conv_op=nn.ConvTranspose1d,
+        conv_kwargs=dict(kernel_size=5, stride=2, padding=2, output_padding=1),
+        norm_op=None,
+        norm_kwargs=None,
+        activation_op=nn.ReLU,
+        activation_kwargs=dict(inplace=True),
+        *args,
+        **kwargs
+    ):
 
         super().__init__()
 
@@ -166,7 +160,6 @@ class UpsampleConvNormActivation(nn.Sequential):
         self.add_module("activation", activation_op(**activation_kwargs))
 
 
-
 class SimpleUNet(nn.Module):
     """
     A simple UNet with a number of identical encoding blocks
@@ -186,47 +179,37 @@ class SimpleUNet(nn.Module):
 
     """
 
-    def __init__(self,
-                 in_channels,
-                 out_channels,
-                 num_blocks=6,
-                 input_bypass=True,
-                 encoding_block_type=ConvNormActivationPool,
-                 encoding_block_kwargs=dict(
-                     conv_op=nn.Conv1d,
-                     conv_kwargs=dict(
-                         kernel_size=5,
-                         stride=2,
-                         padding=2
-                     ),
-                     norm_op=None,
-                     norm_kwargs=None,
-                     activation_op=nn.ReLU,
-                     activation_kwargs=dict(
-                         inplace=True
-                     ),
-                     pool_op=None,
-                     pool_kwargs=None
-                 ),
-                 decoding_block_type=UpsampleConvNormActivation,
-                 decoding_block_kwargs=dict(
-                     upsample_op=None,
-                     upsample_kwargs=None,
-                     conv_op=nn.ConvTranspose1d,
-                     conv_kwargs=dict(
-                         kernel_size=5,
-                         stride=2,
-                         padding=2,
-                         output_padding=1
-                     ),
-                     norm_op=None,
-                     norm_kwargs=None,
-                     activation_op=nn.ReLU,
-                     activation_kwargs=dict(
-                         inplace=True
-                     )
-                 ),
-                 *args, **kwargs):
+    def __init__(
+        self,
+        in_channels,
+        out_channels,
+        num_blocks=6,
+        input_bypass=True,
+        encoding_block_type=ConvNormActivationPool,
+        encoding_block_kwargs=dict(
+            conv_op=nn.Conv1d,
+            conv_kwargs=dict(kernel_size=5, stride=2, padding=2),
+            norm_op=None,
+            norm_kwargs=None,
+            activation_op=nn.ReLU,
+            activation_kwargs=dict(inplace=True),
+            pool_op=None,
+            pool_kwargs=None,
+        ),
+        decoding_block_type=UpsampleConvNormActivation,
+        decoding_block_kwargs=dict(
+            upsample_op=None,
+            upsample_kwargs=None,
+            conv_op=nn.ConvTranspose1d,
+            conv_kwargs=dict(kernel_size=5, stride=2, padding=2, output_padding=1),
+            norm_op=None,
+            norm_kwargs=None,
+            activation_op=nn.ReLU,
+            activation_kwargs=dict(inplace=True),
+        ),
+        *args,
+        **kwargs
+    ):
 
         super().__init__()
 
@@ -237,18 +220,18 @@ class SimpleUNet(nn.Module):
 
         self.encoding_blocks = nn.ModuleList()
         for b in range(num_blocks):
-            c_in = 2**(b // 2) * in_channels
-            c_out = 2**((b+1) // 2) * in_channels
+            c_in = 2 ** (b // 2) * in_channels
+            c_out = 2 ** ((b + 1) // 2) * in_channels
             block = encoding_block_type(c_in, c_out, **encoding_block_kwargs)
             self.encoding_blocks.append(block)
 
         self.decoding_blocks = nn.ModuleList()
         for b in reversed(range(num_blocks)):
-            c_in = 2**((b+1) // 2) * in_channels
+            c_in = 2 ** ((b + 1) // 2) * in_channels
             if b + 1 < num_blocks:
                 c_in *= 2
             if b > 0:
-                c_out = 2**(b // 2) * in_channels
+                c_out = 2 ** (b // 2) * in_channels
             else:
                 c_out = out_channels
             block = decoding_block_type(c_in, c_out, **decoding_block_kwargs)
@@ -259,7 +242,7 @@ class SimpleUNet(nn.Module):
         Forward pass through the convolutional structure.
 
         Args:
-            x (torch.tensor): Input of shape (B, Cin, ...). 
+            x (torch.tensor): Input of shape (B, Cin, ...).
 
         Returns:
             torch.tensor: Output of shape (B, Cout, ...).

@@ -2,8 +2,12 @@ import torch
 import torch.nn as nn
 
 from neuralprocess.model import NeuralProcess
-from neuralprocess.util import tensor_to_loc_scale, stack_batch, unstack_batch, match_shapes
-
+from neuralprocess.util import (
+    tensor_to_loc_scale,
+    stack_batch,
+    unstack_batch,
+    match_shapes,
+)
 
 
 class AttentiveNeuralProcess(NeuralProcess):
@@ -14,7 +18,7 @@ class AttentiveNeuralProcess(NeuralProcess):
     have spatial dimensions, you need to adjust 'in_channels' and
     'representation_channels' to include those, because the attention
     mechanism is assumed to be unable to handle those.
-    
+
     Args:
         attention (torch.nn.Module): Attention mechanism. This should
             support a __call__(query, key, value) signature, where the
@@ -27,16 +31,18 @@ class AttentiveNeuralProcess(NeuralProcess):
         project_bias (bool): Allow bias in projections.
         in_channels (int): Input size for query and key projections.
         representation_channels (int): Input size for value projection.
-    
+
     """
 
-    def __init__(self,
-                 attention,
-                 project_to=0,
-                 project_bias=True,
-                 in_channels=1,
-                 representation_channels=128,
-                 **kwargs):
+    def __init__(
+        self,
+        attention,
+        project_to=0,
+        project_bias=True,
+        in_channels=1,
+        representation_channels=128,
+        **kwargs
+    ):
 
         super().__init__(**kwargs)
 
@@ -57,21 +63,19 @@ class AttentiveNeuralProcess(NeuralProcess):
     def setup_projections(self):
         """Set up modules that project to a common channel size."""
 
-        self.project_query = nn.Linear(self.in_channels,
-                                       self.project_to,
-                                       bias=self.project_bias)
-        self.project_key = nn.Linear(self.in_channels,
-                                     self.project_to,
-                                     bias=self.project_bias)
-        self.project_value = nn.Linear(self.representation_channels,
-                                       self.project_to,
-                                       bias=self.project_bias)
+        self.project_query = nn.Linear(
+            self.in_channels, self.project_to, bias=self.project_bias
+        )
+        self.project_key = nn.Linear(
+            self.in_channels, self.project_to, bias=self.project_bias
+        )
+        self.project_value = nn.Linear(
+            self.representation_channels, self.project_to, bias=self.project_bias
+        )
 
-    def encode_representation(self,
-                              context_in,
-                              context_out,
-                              target_in,
-                              store_rep=False):
+    def encode_representation(
+        self, context_in, context_out, target_in, store_rep=False
+    ):
         """
         Use the 'deterministic_encoder' and the 'attention' mechanism
         to encode a deterministic representation.
@@ -90,9 +94,13 @@ class AttentiveNeuralProcess(NeuralProcess):
         B, N = context_in.shape[:2]
         M = target_in.shape[1]
         S = tuple(target_in.shape[3:])
-                        
+
         encoder_input = torch.cat(
-            match_shapes(stack_batch(context_in), stack_batch(context_out), ignore_axes=1), 1)
+            match_shapes(
+                stack_batch(context_in), stack_batch(context_out), ignore_axes=1
+            ),
+            1,
+        )
         representations = self.deterministic_encoder(encoder_input)
         representations = unstack_batch(representations, B)
 
@@ -109,9 +117,11 @@ class AttentiveNeuralProcess(NeuralProcess):
             representations = self.project_value(stack_batch(representations))
             representations = unstack_batch(representations, B)
 
-        attention_output = self.attention(target_in.transpose(0, 1),
-                                          context_in.transpose(0, 1),
-                                          representations.transpose(0, 1))
+        attention_output = self.attention(
+            target_in.transpose(0, 1),
+            context_in.transpose(0, 1),
+            representations.transpose(0, 1),
+        )
         if isinstance(attention_output, (tuple, list)):
             attention_output, attention_weights = attention_output
         else:

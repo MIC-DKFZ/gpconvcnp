@@ -110,7 +110,7 @@ def make_defaults(representation_channels=128):
         num_samples=50,
         plot_y_range=[-3, 3],
         # Testing
-        test_batches_single=1000,
+        test_batches_single=100,
         test_batches_distribution=30,
         test_batches_diversity=100,
         test_batch_size=1024,

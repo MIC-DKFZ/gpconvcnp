@@ -133,7 +133,10 @@ class LotkaVolterraGenerator(FunctionGenerator):
 
         # draw process parameters
         if hasattr(self.predator_init, "__iter__"):
-            predator = np.random.randint(*self.predator_init, size=(bs, 1, 1),)
+            predator = np.random.randint(
+                *self.predator_init,
+                size=(bs, 1, 1),
+            )
         else:
             predator = np.ones((bs, 1, 1)) * self.predator_init
 
@@ -229,7 +232,9 @@ class LotkaVolterraGenerator(FunctionGenerator):
 
         # draw random indices
         rand_indices = np.random.choice(
-            np.arange(predator_batch.shape[1]), num_context + num_target, replace=False,
+            np.arange(predator_batch.shape[1]),
+            num_context + num_target,
+            replace=False,
         )
         context_indices = rand_indices[:num_context].copy()
         if self.target_includes_context:
