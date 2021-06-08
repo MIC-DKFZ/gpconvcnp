@@ -1,6 +1,6 @@
 # GP-ConvCNP
 
-This repository contains examples and pretrained models for our UAI 2021 paper called "GP-ConvCNP: Better Generalization for Conditional Convolutional Neural Processes on Time Series Data". You can explore examples interactively in the `examples.ipynb` (in the same folder as this README) Jupyter notebook and also re-run our experiments. Further instructions are below.
+This repository contains examples and pretrained models for our UAI 2021 paper called "GP-ConvCNP: Better Generalization for Convolutional Conditional Neural Processes on Time Series Data". You can explore examples interactively in the `examples.ipynb` (in the same folder as this README) Jupyter notebook and also re-run our experiments. Further instructions are below.
 
 ## Installation
 
@@ -8,7 +8,7 @@ If you just want to look at the examples, it's enough to install the package in 
 
     pip install path/to/this/folder
 
-which will create a package called `neuralprocess` in your current Python environment. The package includes our GP-ConvCNP implementation, but also implementations of other major Neural Process variants (ConvCNP, NP, ANP), hence the name We recommend you create a new virtualenv or conda environment before installing. If you also want to be able to run the experiments yourself, you need to install with the `experiment` option
+which will create a package called `neuralprocess` in your current Python environment. The package includes our GP-ConvCNP implementation, but also implementations of other major Neural Process variants (ConvCNP, NP, ANP), hence the name. We recommend you create a new virtualenv or conda environment before installing. If you also want to be able to run the experiments yourself, you need to install with the `experiment` option
 
     pip install path/to/this/folder[experiment]
 
@@ -28,7 +28,7 @@ from this folder (or above), open the notebook and follow the instructions insid
 
 ## Running the Experiments
 
-Our experiment script is part of the `neuralprocess` package and can be found at `neuralprocess/experiment/neuralprocessexperiment.py`. You will find that our experiments uses the PytochExperiment class from [trixi](https://trixi.readthedocs.io/en/develop/) for logging and configuration. This gives us a great deal of flexibility, but we will only list the relevant options to reproduce the experiments from the paper. You basically only need to run the following command
+Our experiment script is part of the `neuralprocess` package and can be found at `neuralprocess/experiment/neuralprocessexperiment.py`. You will find that our experiment uses the PytochExperiment class from [trixi](https://trixi.readthedocs.io/en/develop/) for logging and configuration. This gives us a great deal of flexibility, but we will only list the relevant options to reproduce the experiments from the paper. You basically only need to run the following command
 
     python neuralprocessexperiment.py LOG_DIR -m MODS
 
