@@ -1,6 +1,6 @@
 # GP-ConvCNP
 
-This repository contains examples and pretrained models for our UAI 2021 paper called "GP-ConvCNP: Better Generalization for Convolutional Conditional Neural Processes on Time Series Data". You can explore examples interactively in the `examples.ipynb` (in the same folder as this README) Jupyter notebook and also re-run our experiments. Further instructions are below.
+This repository contains examples and pretrained models for our UAI 2021 paper called ["GP-ConvCNP: Better Generalization for Convolutional Conditional Neural Processes on Time Series Data"](https://arxiv.org/abs/2106.04967). You can explore examples interactively in the `examples.ipynb` (in the same folder as this README) Jupyter notebook and also re-run our experiments. Further instructions are below.
 
 ## Installation
 
